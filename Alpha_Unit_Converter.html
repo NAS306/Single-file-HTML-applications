@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpha Unit Visualizer</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+    input, select { margin: 5px; padding: 5px; }
+    .result { background: #fff; padding: 10px; margin-top: 20px; border-radius: 8px; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body>
+  <h2>⚛️ Alpha Unit Converter & Visualizer</h2>
+  <label>Alpha Unit Value (1/N): </label><input id="alphaValue" type="number" step="any" value="1" /><br />
+  <label>Numerical Base (M): </label><input id="baseValue" type="number" value="10" min="2" max="36" /><br />
+  <button onclick="convertConstants()">Convert</button>
+
+  <div class="result" id="output"></div>
+
+  <script>
+    const alpha = 1 / 137.035999084; // Most precise known alpha value
+    const constantsSI = {
+      "e (Coulombs)": 1.602176634e-19,
+      "h-bar (J·s)": 1.054571817e-34,
+      "c (m/s)": 299792458,
+      "ε₀ (F/m)": 8.8541878128e-12
+    };
+
+    function toBase(n, base, digits = 100) {
+      let result = [];
+      let frac = n;
+      for (let i = 0; i < digits; i++) {
+        frac *= base;
+        let digit = Math.floor(frac);
+        result.push(digit.toString(base));
+        frac -= digit;
+      }
+      return result.join("");
+    }
+
+    function convertConstants() {
+      const N = parseFloat(document.getElementById("alphaValue").value);
+      const M = parseInt(document.getElementById("baseValue").value);
+      const a = alpha * N;
+      let output = `<strong>Alpha (α):</strong> ${alpha.toPrecision(15)} = 1/${(1/alpha).toFixed(9)}<br />`;
+      output += `<strong>a-unit:</strong> ${a.toExponential(12)} (based on N = ${N})<br /><br />`;
+      output += `<strong>Converted constants (in base ${M}):</strong><br /><pre>`;
+
+      for (let key in constantsSI) {
+        const siVal = constantsSI[key];
+        const inAlpha = siVal / a;
+        const baseVal = toBase(inAlpha, M);
+        output += `${key.padEnd(20)} = ${baseVal} [a]
+`;
+      }
+      output += `</pre>`;
+      document.getElementById("output").innerHTML = output;
+    }
+  </script>
+</body>
+</html>

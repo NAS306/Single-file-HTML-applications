@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스텝퍼 모터 기반 디스플레이 시뮬레이션</title>
+<style>
+  body { display: flex; flex-direction: column; align-items: center; font-family: sans-serif; }
+  .container { display: flex; justify-content: center; gap: 40px; margin-top: 20px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(8, 30px);
+    grid-gap: 0px;
+  }
+  .pixel {
+    width: 30px; height: 30px;
+    border: 1px solid #aaa;
+    cursor: pointer;
+    background: white;
+    transform-style: preserve-3d;
+    perspective: 200px;
+  }
+  .on { background: rgb(61, 61, 61); }
+  .off { background: rgb(212, 212, 212); }
+
+  /* 회전 애니메이션 */
+  .flip {
+    animation-name: flipAnim;
+    animation-timing-function: linear;
+  }
+  @keyframes flipAnim {
+    0%   { transform: rotateX(0deg); }
+    50%  { transform: rotateX(90deg); }
+    100% { transform: rotateX(180deg); }
+  }
+</style>
+</head>
+<body>
+<button onclick="toggleMode()">Single motor mode</button>
+
+<div class="container">
+  <div>
+    <h3>Simulator</h3>
+    <div id="simulator" class="grid"></div>
+  </div>
+
+  <div>
+    <h3>Painter</h3>
+    <div id="painter" class="grid"></div>
+    <button onclick="applyPattern()">Apply Pattern</button>
+  </div>
+</div>
+
+<script>
+const rows = 10, cols = 8;
+const motorSpeed = 10; // 회전/초
+const simulator = document.getElementById('simulator');
+const painter = document.getElementById('painter');
+
+let dualMode = false; // 기본은 단일 모터
+let simState = Array(rows).fill(0);
+let targetState = Array(rows).fill(0);
+
+// 초기화
+for (let i = 0; i < rows*cols; i++) {
+  const s = document.createElement('div');
+  s.className = 'pixel off';
+  simulator.appendChild(s);
+
+  const p = document.createElement('div');
+  p.className = 'pixel off';
+  p.onclick = () => {
+    p.classList.toggle('on');
+    p.classList.toggle('off');
+  };
+  painter.appendChild(p);
+}
+
+function toggleMode() {
+  dualMode = !dualMode;
+  document.querySelector('button').innerText = 
+    "Toggle mode (Current: " + (dualMode ? "Dual motor" : "Single motor") + ")";
+  simState = dualMode 
+    ? Array(rows).fill().map(()=>[0,0]) 
+    : Array(rows).fill(0);
+  targetState = dualMode 
+    ? Array(rows).fill().map(()=>[0,0]) 
+    : Array(rows).fill(0);
+}
+
+function applyPattern() {
+  const pixels = painter.querySelectorAll('.pixel');
+  for (let r = 0; r < rows; r++) {
+    if (dualMode) {
+      let leftVal = 0, rightVal = 0;
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        if (pixels[idx].classList.contains('on')) {
+          if (c < cols/2) {
+            // 왼쪽 모터: 정상 순서
+            leftVal |= (1 << c);
+          } else {
+            // 오른쪽 모터: 역순 매핑
+            const bitPos = (cols/2 - 1) - (c - cols/2);
+            rightVal |= (1 << bitPos);
+          }
+        }
+      }
+      targetState[r] = [leftVal, rightVal];
+    } else {
+      let value = 0;
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        if (pixels[idx].classList.contains('on')) {
+          value |= (1 << c);
+        }
+      }
+      targetState[r] = value;
+    }
+  }
+}
+
+function stepMotor(current, target, maxVal) {
+  const forward = (target - current + maxVal + 1) % (maxVal + 1);
+  const backward = (current - target + maxVal + 1) % (maxVal + 1);
+  if (forward <= backward) {
+    return (current + 1) % (maxVal + 1);
+  } else {
+    return (current - 1 + maxVal + 1) % (maxVal + 1);
+  }
+}
+
+function updateSimulator() {
+  const simPixels = simulator.querySelectorAll('.pixel');
+  for (let r = 0; r < rows; r++) {
+    if (dualMode) {
+      for (let side = 0; side < 2; side++) {
+        const maxVal = (1 << (cols/2)) - 1;
+        if (simState[r][side] !== targetState[r][side]) {
+          simState[r][side] = stepMotor(simState[r][side], targetState[r][side], maxVal);
+        }
+      }
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        const side = (c < cols/2) ? 0 : 1;
+        let bit;
+        if (side === 0) {
+          // 왼쪽 모터: 정상 순서
+          bit = (simState[r][side] >> (c % (cols/2))) & 1;
+        } else {
+          // 오른쪽 모터: 역순 순서
+          const bitPos = (cols/2 - 1) - (c - cols/2);
+          bit = (simState[r][side] >> bitPos) & 1;
+        }
+        const pixel = simPixels[idx];
+        const newClass = bit ? 'pixel on' : 'pixel off';
+        if (pixel.className !== newClass) {
+          pixel.className = newClass + ' flip';
+          pixel.style.animationDuration = (1000/motorSpeed) + 'ms';
+          pixel.addEventListener('animationend', () => {
+            pixel.classList.remove('flip');
+          }, { once: true });
+        }
+      }
+    } else {
+      const maxVal = (1 << cols) - 1;
+      if (simState[r] !== targetState[r]) {
+        simState[r] = stepMotor(simState[r], targetState[r], maxVal);
+      }
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        const bit = (simState[r] >> c) & 1;
+        const pixel = simPixels[idx];
+        const newClass = bit ? 'pixel on' : 'pixel off';
+        if (pixel.className !== newClass) {
+          pixel.className = newClass + ' flip';
+          pixel.style.animationDuration = (1000/motorSpeed) + 'ms';
+          pixel.addEventListener('animationend', () => {
+            pixel.classList.remove('flip');
+          }, { once: true });
+        }
+      }
+    }
+  }
+}
+
+setInterval(updateSimulator, 1000/motorSpeed);
+</script>
+</body>
+</html>

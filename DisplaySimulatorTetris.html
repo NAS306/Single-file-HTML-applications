@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스텝퍼 모터 기반 디스플레이 시뮬레이션 + Tetris</title>
+<style>
+  body { display: flex; flex-direction: column; align-items: center; font-family: sans-serif; }
+  .container { display: flex; justify-content: center; gap: 40px; margin-top: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(8, 30px); }
+  .pixel {
+    width: 30px; height: 30px;
+    border: 1px solid #aaa;
+    cursor: pointer;
+    background: white;
+    transform-style: preserve-3d;
+    perspective: 200px;
+  }
+  .on { background: rgb(61,61,61); }
+  .off { background: rgb(212,212,212); }
+
+  .flip { animation-name: flipAnim; animation-timing-function: linear; }
+  @keyframes flipAnim {
+    0% { transform: rotateX(0deg); }
+    50% { transform: rotateX(90deg); }
+    100% { transform: rotateX(180deg); }
+  }
+</style>
+</head>
+<body>
+<button onclick="toggleMode()">Single motor mode</button>
+<button onclick="toggleTetris()">Tetris Mode</button>
+
+<div class="container">
+  <div>
+    <h3>Simulator</h3>
+    <div id="simulator" class="grid"></div>
+  </div>
+
+  <div>
+    <h3>Painter</h3>
+    <div id="painter" class="grid"></div>
+    <button onclick="applyPattern()">Apply Pattern</button>
+  </div>
+</div>
+
+<script>
+const rows = 10, cols = 8;
+const motorSpeed = 10;
+const simulator = document.getElementById('simulator');
+const painter = document.getElementById('painter');
+
+let dualMode = false;
+let simState = Array(rows).fill(0);
+let targetState = Array(rows).fill(0);
+
+// --- INIT ---
+for (let i = 0; i < rows*cols; i++) {
+  const s = document.createElement('div');
+  s.className = 'pixel off';
+  simulator.appendChild(s);
+
+  const p = document.createElement('div');
+  p.className = 'pixel off';
+  p.onclick = () => {
+    if (!tetrisMode) {
+      p.classList.toggle('on');
+      p.classList.toggle('off');
+    }
+  };
+  painter.appendChild(p);
+}
+
+function toggleMode() {
+  dualMode = !dualMode;
+  document.querySelector('button').innerText = 
+    "Toggle mode (Current: " + (dualMode ? "Dual motor" : "Single motor") + ")";
+  simState = dualMode ? Array(rows).fill().map(()=>[0,0]) : Array(rows).fill(0);
+  targetState = dualMode ? Array(rows).fill().map(()=>[0,0]) : Array(rows).fill(0);
+}
+
+// =====================
+// TETRIS ENGINE (non-invasive)
+// =====================
+let tetrisMode = false;
+let tetrisTimer = null;
+
+const board = Array.from({length: rows}, ()=>Array(cols).fill(0));
+
+const SHAPES = [
+  [[1,1,1,1]],
+  [[1,1],[1,1]],
+  [[0,1,0],[1,1,1]],
+  [[1,0,0],[1,1,1]],
+  [[0,0,1],[1,1,1]]
+];
+
+let piece, px, py;
+
+function spawn() {
+  piece = SHAPES[Math.floor(Math.random()*SHAPES.length)];
+  px = Math.floor((cols - piece[0].length)/2);
+  py = 0;
+  if (collision(px, py)) {
+    board.forEach(r=>r.fill(0)); // reset
+  }
+}
+
+function collision(x,y,shape=piece){
+  for(let r=0;r<shape.length;r++){
+    for(let c=0;c<shape[0].length;c++){
+      if(!shape[r][c]) continue;
+      let nx=x+c, ny=y+r;
+      if(nx<0||nx>=cols||ny>=rows) return true;
+      if(ny>=0 && board[ny][nx]) return true;
+    }
+  }
+  return false;
+}
+
+function merge(){
+  for(let r=0;r<piece.length;r++){
+    for(let c=0;c<piece[0].length;c++){
+      if(piece[r][c]) board[py+r][px+c]=1;
+    }
+  }
+}
+
+function clearLines(){
+  for(let r=rows-1;r>=0;r--){
+    if(board[r].every(v=>v)){
+      board.splice(r,1);
+      board.unshift(Array(cols).fill(0));
+      r++;
+    }
+  }
+}
+
+function rotate(shape){
+  return shape[0].map((_,i)=>shape.map(r=>r[i]).reverse());
+}
+
+function tetrisStep(){
+  if(!collision(px,py+1)) py++;
+  else { merge(); clearLines(); spawn(); }
+  renderToPainter();
+  applyPattern();
+}
+
+function renderToPainter(){
+  const pixels = painter.querySelectorAll('.pixel');
+
+  // clear painter
+  pixels.forEach(p=>{p.classList.remove('on');p.classList.add('off');});
+
+  // board
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      if(board[r][c]) pixels[r*cols+c].className='pixel on';
+    }
+  }
+
+  // piece
+  for(let r=0;r<piece.length;r++){
+    for(let c=0;c<piece[0].length;c++){
+      if(piece[r][c]){
+        let x=px+c, y=py+r;
+        if(y>=0) pixels[y*cols+x].className='pixel on';
+      }
+    }
+  }
+}
+
+function toggleTetris(){
+  tetrisMode = !tetrisMode;
+  if(tetrisMode){
+    spawn();
+    tetrisTimer = setInterval(tetrisStep,2000);
+    window.addEventListener('keydown',keyControl);
+  } else {
+    clearInterval(tetrisTimer);
+    window.removeEventListener('keydown',keyControl);
+  }
+}
+
+function keyControl(e){
+  if(!tetrisMode) return;
+  if(e.key==='ArrowLeft' && !collision(px-1,py)) px--;
+  if(e.key==='ArrowRight' && !collision(px+1,py)) px++;
+  if(e.key==='ArrowDown') tetrisStep();
+  if(e.key==='ArrowUp'){
+    let rot=rotate(piece);
+    if(!collision(px,py,rot)) piece=rot;
+  }
+  renderToPainter();
+  applyPattern();
+}
+
+// =====================
+// ORIGINAL SYSTEM (UNCHANGED)
+// =====================
+function applyPattern() {
+  const pixels = painter.querySelectorAll('.pixel');
+  for (let r = 0; r < rows; r++) {
+    if (dualMode) {
+      let leftVal = 0, rightVal = 0;
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        if (pixels[idx].classList.contains('on')) {
+          if (c < cols/2) {
+            leftVal |= (1 << c);
+          } else {
+            const bitPos = (cols/2 - 1) - (c - cols/2);
+            rightVal |= (1 << bitPos);
+          }
+        }
+      }
+      targetState[r] = [leftVal, rightVal];
+    } else {
+      let value = 0;
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        if (pixels[idx].classList.contains('on')) {
+          value |= (1 << c);
+        }
+      }
+      targetState[r] = value;
+    }
+  }
+}
+
+function stepMotor(current, target, maxVal) {
+  const forward = (target - current + maxVal + 1) % (maxVal + 1);
+  const backward = (current - target + maxVal + 1) % (maxVal + 1);
+  if (forward <= backward) return (current + 1) % (maxVal + 1);
+  else return (current - 1 + maxVal + 1) % (maxVal + 1);
+}
+
+function updateSimulator() {
+  const simPixels = simulator.querySelectorAll('.pixel');
+  for (let r = 0; r < rows; r++) {
+    if (dualMode) {
+      for (let side = 0; side < 2; side++) {
+        const maxVal = (1 << (cols/2)) - 1;
+        if (simState[r][side] !== targetState[r][side]) {
+          simState[r][side] = stepMotor(simState[r][side], targetState[r][side], maxVal);
+        }
+      }
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        const side = (c < cols/2) ? 0 : 1;
+        let bit;
+        if (side === 0) bit = (simState[r][side] >> (c % (cols/2))) & 1;
+        else {
+          const bitPos = (cols/2 - 1) - (c - cols/2);
+          bit = (simState[r][side] >> bitPos) & 1;
+        }
+        const pixel = simPixels[idx];
+        const newClass = bit ? 'pixel on' : 'pixel off';
+        if (pixel.className !== newClass) {
+          pixel.className = newClass + ' flip';
+          pixel.style.animationDuration = (1000/motorSpeed) + 'ms';
+          pixel.addEventListener('animationend', () => {
+            pixel.classList.remove('flip');
+          }, { once: true });
+        }
+      }
+    } else {
+      const maxVal = (1 << cols) - 1;
+      if (simState[r] !== targetState[r]) {
+        simState[r] = stepMotor(simState[r], targetState[r], maxVal);
+      }
+      for (let c = 0; c < cols; c++) {
+        const idx = r*cols + c;
+        const bit = (simState[r] >> c) & 1;
+        const pixel = simPixels[idx];
+        const newClass = bit ? 'pixel on' : 'pixel off';
+        if (pixel.className !== newClass) {
+          pixel.className = newClass + ' flip';
+          pixel.style.animationDuration = (1000/motorSpeed) + 'ms';
+          pixel.addEventListener('animationend', () => {
+            pixel.classList.remove('flip');
+          }, { once: true });
+        }
+      }
+    }
+  }
+}
+
+setInterval(updateSimulator, 1000/motorSpeed);
+</script>
+</body>
+</html>

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ESF Trainer – Aim / Tracking Practice</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      overflow: hidden;
+      color: white;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #ui {
+      position: fixed;
+      left: 16px;
+      top: 16px;
+      font-size: 15px;
+      line-height: 1.5;
+      pointer-events: none;
+    }
+
+    #stats {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      font-size: 14px;
+      line-height: 1.45;
+      text-align: right;
+      font-family: Consolas, monospace;
+    }
+
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  Click to lock mouse<br>
+  Mouse X → Roll<br>
+  Mouse Y → Pitch<br>
+  A / D → Yaw
+</div>
+
+<div id="stats"></div>
+
+<script>
+// ────────────────────────────────────────────────
+//  CONFIGURATION
+// ────────────────────────────────────────────────
+
+const CONFIG = {
+  // Input sensitivity & smoothing
+  rollSpeed:      0.040,
+  rollAccel:      0.0015,
+  pitchSpeed:     0.040,
+  pitchAccel:     0.10,
+  yawSpeed:       0.70,
+  yawAccel:       0.20,
+
+  // Target behavior
+  maxSpeed:       30,
+  maxForce:       0.20,
+  wanderRadius:   200,
+  wanderDistance: 1200,
+  wanderJitter:   0.70,
+  returnPullDist: 600,
+  hitRadius:      40,
+  fillTimeSec:    2.0,      // time to fill circle
+  decaySpeed:     0.05,
+
+  // Visuals
+  gridSpacing:    200,
+  gridRange:      2000,
+  targetRadius:   40,
+};
+
+// ────────────────────────────────────────────────
+//  STATE
+// ────────────────────────────────────────────────
+
+const state = {
+  canvas: null,
+  ctx: null,
+  cx: 0, cy: 0,           // screen center
+
+  cam:    { x: 0, y: 0 },
+  vel:    { x: 0, y: 0 },
+
+  roll:    0,
+  rollVel: 0,
+
+  pitchVel: 0,
+  yawVel:   0,
+
+  mouseDX: 0,
+  mouseDY: 0,
+
+  keys: {},
+
+  target:     { x: 400, y: 0, angle: 0 },
+  targetVel:  { x: 0,   y: 0 },
+
+  wanderAngle: 0,
+
+  hitFill:     0,         // 0 → 1
+  timerStart:  0,
+  killTimes:   [],
+
+  lastFrameTime: 0,
+};
+
+// ────────────────────────────────────────────────
+//  INIT & EVENT LISTENERS
+// ────────────────────────────────────────────────
+
+function init() {
+  state.canvas = document.getElementById("canvas");
+  state.ctx     = state.canvas.getContext("2d");
+
+  resize();
+  window.addEventListener("resize", resize);
+
+  state.canvas.addEventListener("click", () => {
+    state.canvas.requestPointerLock();
+  });
+
+  document.addEventListener("pointerlockchange", () => {
+    if (document.pointerLockElement !== state.canvas) {
+      state.mouseDX = state.mouseDY = 0;
+    }
+  });
+
+  document.addEventListener("mousemove", e => {
+    if (document.pointerLockElement === state.canvas) {
+      state.mouseDX += e.movementX;
+      state.mouseDY += e.movementY;
+    }
+  });
+
+  document.addEventListener("keydown", e => {
+    state.keys[e.key.toLowerCase()] = true;
+  });
+
+  document.addEventListener("keyup", e => {
+    state.keys[e.key.toLowerCase()] = false;
+  });
+
+  requestAnimationFrame(loop);
+}
+
+function resize() {
+  state.canvas.width  = window.innerWidth;
+  state.canvas.height = window.innerHeight;
+  state.cx = state.canvas.width  / 2;
+  state.cy = state.canvas.height / 2;
+}
+
+// ────────────────────────────────────────────────
+//  UPDATE
+// ────────────────────────────────────────────────
+
+function update(dt) {
+  // ── Input ───────────────────────────────────────
+
+  // Roll (mouse X)
+  const targetRollVel = state.mouseDX * CONFIG.rollSpeed;
+  state.rollVel += (targetRollVel - state.rollVel) * CONFIG.rollAccel;
+  state.roll    += state.rollVel;
+  state.rollVel *= 0.90;
+
+  // Pitch (mouse Y)
+  const targetPitchVel = state.mouseDY * CONFIG.pitchSpeed;
+  state.pitchVel += (targetPitchVel - state.pitchVel) * CONFIG.pitchAccel;
+
+  // Yaw (A/D)
+  let targetYawVel = 0;
+  if (state.keys["a"]) targetYawVel -= CONFIG.yawSpeed;
+  if (state.keys["d"]) targetYawVel += CONFIG.yawSpeed;
+  state.yawVel += (targetYawVel - state.yawVel) * CONFIG.yawAccel;
+
+  // Rotate input axes by current roll
+  const c = Math.cos(state.roll);
+  const s = Math.sin(state.roll);
+  const moveX = state.yawVel   * c - state.pitchVel * s;
+  const moveY = state.yawVel   * s + state.pitchVel * c;
+
+  state.vel.x += moveX;
+  state.vel.y += moveY;
+  state.vel.x *= 0.90;
+  state.vel.y *= 0.90;
+
+  state.cam.x += state.vel.x;
+  state.cam.y += state.vel.y;
+
+  state.mouseDX = state.mouseDY = 0;
+
+  // ── Target wander & return-to-center logic ─────
+
+  // Wander
+  state.wanderAngle += (Math.random() * 2 - 1) * CONFIG.wanderJitter;
+
+  let speed = Math.hypot(state.targetVel.x, state.targetVel.y);
+  if (speed < 0.1) {
+    state.targetVel.x = 1;
+    state.targetVel.y = 0;
+    speed = 1;
+  }
+
+  const normX = state.targetVel.x / speed;
+  const normY = state.targetVel.y / speed;
+
+  const circleX = normX * CONFIG.wanderDistance;
+  const circleY = normY * CONFIG.wanderDistance;
+
+  const dispX = Math.cos(state.wanderAngle) * CONFIG.wanderRadius;
+  const dispY = Math.sin(state.wanderAngle) * CONFIG.wanderRadius;
+
+  const desiredX = circleX + dispX;
+  const desiredY = circleY + dispY;
+
+  let desiredLen = Math.hypot(desiredX, desiredY);
+  let desiredVx = desiredX, desiredVy = desiredY;
+  if (desiredLen > 0) {
+    desiredVx = (desiredX / desiredLen) * CONFIG.maxSpeed;
+    desiredVy = (desiredY / desiredLen) * CONFIG.maxSpeed;
+  }
+
+  let steerX = desiredVx - state.targetVel.x;
+  let steerY = desiredVy - state.targetVel.y;
+  let steerLen = Math.hypot(steerX, steerY);
+  if (steerLen > CONFIG.maxForce) {
+    steerX = (steerX / steerLen) * CONFIG.maxForce;
+    steerY = (steerY / steerLen) * CONFIG.maxForce;
+  }
+
+  state.targetVel.x += steerX;
+  state.targetVel.y += steerY;
+
+  // Face movement direction
+  if (speed > 0.1) {
+    state.target.angle = Math.atan2(state.targetVel.y, state.targetVel.x);
+  }
+
+  // Gentle pull toward center when far away
+  const dist = Math.hypot(state.target.x, state.target.y);
+  if (dist > CONFIG.returnPullDist * 0.7) {
+    const pullStrength = (dist - CONFIG.returnPullDist * 0.7) / (CONFIG.returnPullDist * 0.3);
+    state.targetVel.x += (0 - state.target.x) * 0.01 * pullStrength;
+    state.targetVel.y += (0 - state.target.y) * 0.01 * pullStrength;
+  }
+
+  state.targetVel.x *= 0.96;
+  state.targetVel.y *= 0.96;
+
+  state.target.x += state.targetVel.x;
+  state.target.y += state.targetVel.y;
+
+  // ── Hit / Fill logic ────────────────────────────
+
+  const touching = Math.hypot(state.cam.x - state.target.x, state.cam.y - state.target.y) < CONFIG.hitRadius;
+
+  if (touching) {
+    if (state.timerStart === 0) {
+      state.timerStart = performance.now();
+    }
+    state.hitFill += dt / CONFIG.fillTimeSec;
+    if (state.hitFill >= 1) {
+      const killTime = (performance.now() - state.timerStart) / 1000;
+      state.killTimes.push(killTime.toFixed(2));
+      respawnTarget();
+    }
+  } else {
+    state.hitFill -= dt * CONFIG.decaySpeed;
+    if (state.hitFill < 0) state.hitFill = 0;
+    if (state.hitFill === 0) state.timerStart = 0;
+  }
+}
+
+function respawnTarget() {
+  state.target.x = (Math.random() - 0.5) * 1000;
+  state.target.y = (Math.random() - 0.5) * 1000;
+  state.target.angle = Math.random() * Math.PI * 2;
+  state.targetVel.x = state.targetVel.y = 0;
+  state.wanderAngle = Math.random() * Math.PI * 2;
+  state.hitFill = 0;
+  state.timerStart = 0;
+}
+
+// ────────────────────────────────────────────────
+//  RENDER
+// ────────────────────────────────────────────────
+
+function draw() {
+  const { ctx, cx, cy, cam, roll, target, hitFill } = state;
+
+  ctx.clearRect(0, 0, state.canvas.width, state.canvas.height);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-roll);
+  ctx.translate(-cam.x, -cam.y);
+
+  // Grid
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 1;
+  for (let i = -CONFIG.gridRange; i <= CONFIG.gridRange; i += CONFIG.gridSpacing) {
+    ctx.beginPath();
+    ctx.moveTo(-CONFIG.gridRange, i);
+    ctx.lineTo( CONFIG.gridRange, i);
+    ctx.moveTo(i, -CONFIG.gridRange);
+    ctx.lineTo(i,  CONFIG.gridRange);
+    ctx.stroke();
+  }
+
+  // Target
+  ctx.strokeStyle = "red";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, CONFIG.targetRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Orientation line
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 3;
+  const orientLen = CONFIG.targetRadius;
+  const ox = target.x + Math.cos(target.angle) * orientLen;
+  const oy = target.y + Math.sin(target.angle) * orientLen;
+  ctx.beginPath();
+  ctx.moveTo(target.x, target.y);
+  ctx.lineTo(ox, oy);
+  ctx.stroke();
+
+  // Fill progress
+  if (hitFill > 0) {
+    ctx.fillStyle = "rgba(255, 60, 60, 0.6)";
+    ctx.beginPath();
+    ctx.moveTo(target.x, target.y);
+    ctx.arc(target.x, target.y, CONFIG.targetRadius,
+            -Math.PI/2, -Math.PI/2 + hitFill * Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // Crosshair
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 12, cy);
+  ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy + 12);
+  ctx.stroke();
+
+  // Off-screen target indicator
+  const dx = target.x - cam.x;
+  const dy = target.y - cam.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 1) {
+    const sx = dx * Math.cos(roll) - dy * Math.sin(roll) + cx;
+    const sy = dx * Math.sin(roll) + dy * Math.cos(roll) + cy;
+
+    if (sx < -40 || sx > state.canvas.width + 40 ||
+        sy < -40 || sy > state.canvas.height + 40) {
+      const dirX = dx * Math.cos(roll) + dy * Math.sin(roll);
+      const dirY = -dx * Math.sin(roll) + dy * Math.cos(roll);
+      const len = 60;
+      const ix = cx + (dirX / dist) * len;
+      const iy = cy + (dirY / dist) * len;
+
+      ctx.fillStyle = "yellow";
+      ctx.beginPath();
+      ctx.arc(ix, iy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Stats
+  const statsEl = document.getElementById("stats");
+  statsEl.innerHTML = state.killTimes.slice(-25).map(t => {
+    const num = parseFloat(t);
+    const hue = num < 10 ? 120 : num < 18 ? 60 : num < 25 ? 30 : 0;
+    return `<span style="color:hsl(${hue}, 100%, 65%)">${t}s</span>`;
+  }).join("<br>") || "—";
+}
+
+// ────────────────────────────────────────────────
+//  MAIN LOOP
+// ────────────────────────────────────────────────
+
+function loop() {
+  const now = performance.now();
+  const dt = Math.min((now - state.lastFrameTime) / 1000, 0.05) || 0.016;
+  state.lastFrameTime = now;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+// ────────────────────────────────────────────────
+//  START
+// ────────────────────────────────────────────────
+
+init();
+</script>
+</body>
+</html>

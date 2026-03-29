@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ESF Trainer</title>
+
+<style>
+body{
+margin:0;
+background:black;
+overflow:hidden;
+color:white;
+font-family:Arial;
+}
+
+#ui{
+position:fixed;
+left:10px;
+top:10px;
+}
+
+canvas{
+display:block;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="ui">
+Click to capture mouse<br>
+Mouse X = Roll<br>
+Mouse Y = Pitch<br>
+A/D = Yaw
+</div>
+
+<script>
+
+// Canvas + rendering context setup
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+// Match the canvas size to the current window size
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// Center of the screen (used for drawing the crosshair and camera transform)
+let cx = canvas.width/2;
+let cy = canvas.height/2;
+
+// Camera position and velocity (world space)
+let cam = {x:0,y:0};
+let vel = {x:0,y:0};
+
+// Roll angle (radians). Used to rotate both the camera and input axes.
+let roll = 0;
+
+// Roll velocity (applied to roll each frame) and damping
+let rollVel = 0;
+
+// Pitch / yaw velocities (for smooth acceleration behavior)
+let pitchVel = 0;
+let yawVel = 0;
+
+// Mouse movement deltas (accumulated each frame while pointer lock is active)
+let mouseDX = 0;
+let mouseDY = 0;
+
+// Keyboard input state (simple key down tracking)
+let keys = {};
+
+// Frame time tracking for smooth dt-based motion
+let lastFrameTime = 0;
+
+let t=0;
+
+let vh = window.innerHeight;
+let scale = vh / 1000;
+
+// World bounds for wrapping
+let worldHalfWidth = 2000 * scale;
+let worldHalfHeight = 2000 * scale;
+
+// Enable pointer lock on click so we can capture raw mouse movement
+canvas.onclick = () => canvas.requestPointerLock();
+
+// Track raw mouse movement deltas while pointer lock is active
+document.addEventListener("mousemove", e => {
+  if (document.pointerLockElement === canvas) {
+    mouseDX += e.movementX;
+    mouseDY += e.movementY;
+  }
+});
+
+// Track key state (pressed / released)
+document.addEventListener("keydown", e => {
+  keys[e.key.toLowerCase()] = true;
+});
+
+document.addEventListener("keyup", e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+function update(dt) {
+  // Keep dt bounded so slow frames don't break simulations
+  dt = Math.min(dt, 0.05);
+
+  // Advance our simulation time (not tied to real frame time for simplicity)
+  t += dt;
+
+  /* Input configuration */
+  let rollSpeed = 0.04 * scale;   // how quickly mouse X affects roll acceleration
+  let rollAccel = 0.0015 * scale;  // how fast roll velocity responds to input
+  let pitchSpeed = 0.04 * scale   // how quickly mouse Y affects pitch target velocity
+  let pitchAccel = 0.1 * scale;    // how fast pitch velocity responds to input
+  let yawSpeed = 0.7 * scale;        // how quickly A/D affects yaw target velocity (halved)
+  let yawAccel = 0.2 * scale;      // how fast yaw velocity responds to input
+
+  /* Apply roll from mouse X movement (with acceleration) */
+  let targetRollVel = mouseDX * rollSpeed;
+  rollVel += (targetRollVel - rollVel) * rollAccel;
+  roll += rollVel;
+  // Apply damping so roll velocity decays naturally
+  rollVel *= 0.9;
+
+  /* Pitch is driven by vertical mouse movement */
+  let targetPitchVel = mouseDY * pitchSpeed;
+
+  /* Yaw is driven by A/D keys */
+  let targetYawVel = 0;
+  if (keys["a"]) targetYawVel -= yawSpeed;
+  if (keys["d"]) targetYawVel += yawSpeed;
+
+  // Smoothly accelerate pitch and yaw velocities toward their targets
+  pitchVel += (targetPitchVel - pitchVel) * pitchAccel;
+  yawVel += (targetYawVel - yawVel) * yawAccel;
+
+  /* Rotate the input vector by the current roll angle.
+     This makes pitch/yaw controls stay aligned with the rolled view. */
+  let cos = Math.cos(roll);
+  let sin = Math.sin(roll);
+
+  let moveX = yawVel * cos - pitchVel * sin;
+  let moveY = yawVel * sin + pitchVel * cos;
+
+  /* Apply movement to velocity and integrate to camera position */
+  vel.x += moveX;
+  vel.y += moveY;
+
+  // Damping so motion slows down over time
+  vel.x *= 0.9;
+  vel.y *= 0.9;
+
+  cam.x += vel.x;
+  cam.y += vel.y;
+
+  // Wrap the camera position so the world wraps around
+  if (cam.x > worldHalfWidth) cam.x -= worldHalfWidth * 2;
+  if (cam.x < -worldHalfWidth) cam.x += worldHalfWidth * 2;
+  if (cam.y > worldHalfHeight) cam.y -= worldHalfHeight * 2;
+  if (cam.y < -worldHalfHeight) cam.y += worldHalfHeight * 2;
+
+  // Reset mouse delta for the next frame
+  mouseDX = 0;
+  mouseDY = 0;
+}
+
+function drawWorld(){
+  ctx.strokeStyle="#AAAAAA";
+
+  for(let i=-3000*scale;i<=3000*scale;i+=200*scale){
+    ctx.beginPath();
+    ctx.moveTo(-3000*scale,i);
+    ctx.lineTo(3000*scale,i);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(i,-3000*scale);
+    ctx.lineTo(i,3000*scale);
+    ctx.stroke();
+  }
+}
+
+function draw() {
+  // Clear the entire canvas each frame
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+
+  /* Camera transform
+     1) Translate to screen center
+     2) Rotate by roll (roll affects both the world and input orientation)
+     3) Translate by the camera position in world space
+  */
+  ctx.translate(cx, cy);
+  ctx.rotate(-roll);
+  ctx.translate(-cam.x, -cam.y);
+
+  drawWorld();
+
+  ctx.restore();
+
+  /* Draw a simple crosshair at the center of the screen */
+  ctx.strokeStyle = "white";
+  ctx.beginPath();
+  ctx.moveTo(cx - 10*scale, cy);
+  ctx.lineTo(cx + 10*scale, cy);
+  ctx.moveTo(cx, cy - 10*scale);
+  ctx.lineTo(cx, cy + 10*scale);
+  ctx.stroke();
+}
+
+function loop(){
+  let now = performance.now();
+  let dt = lastFrameTime ? (now - lastFrameTime) / 1000 : 0.016;
+  lastFrameTime = now;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+</script>
+
+</body>
+</html>

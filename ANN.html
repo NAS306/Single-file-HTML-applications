@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>최고 성과 모델 신경망 시각화 (툴팁 포함)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #canvasContainer { border: 1px solid #ccc; width: 800px; height: 600px; position: relative; }
+    canvas { width: 100%; height: 100%; }
+    #fileInput { margin-top: 10px; }
+    /* 툴팁 스타일 */
+    #tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 12px;
+      display: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <h1>최고 성과 모델 신경망 시각화 (툴팁 포함)</h1>
+  <p>best_model.json 파일을 선택하세요.</p>
+  <input type="file" id="fileInput" accept=".json">
+  
+  <div id="canvasContainer">
+    <canvas id="nnCanvas" width="800" height="600"></canvas>
+    <div id="tooltip"></div>
+  </div>
+  
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const canvas = document.getElementById('nnCanvas');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('tooltip');
+
+    // 연결 정보를 저장할 배열
+    let connections = [];
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          const models = JSON.parse(event.target.result);
+          if (!models || models.length === 0) {
+            alert("모델 데이터가 없습니다.");
+            return;
+          }
+          // 첫 번째 모델을 선택
+          const model = models[0];
+          visualizeModel(model);
+        } catch (err) {
+          console.error(err);
+          alert("파일 파싱 중 오류가 발생했습니다.");
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // 신경망 시각화 함수
+    function visualizeModel(model) {
+      // 모델 객체에서 weights1과 weights2를 가져옴
+      const weights1 = model.weights1;
+      const weights2 = model.weights2;
+      if (!weights1 || !weights2) {
+        alert("신경망 데이터가 부족합니다.");
+        return;
+      }
+      
+      // 모델의 층 크기 결정
+      const inputSize = weights1.length;           // 예: 5
+      const hiddenSize = weights1[0].length;         // 예: 4
+      const outputSize = weights2[0].length;         // 예: 2
+      
+      // 캔버스 내 각 층의 x 좌표 (입력, 은닉, 출력)
+      const paddingX = 100;
+      const layerSpacing = (canvas.width - 2 * paddingX) / 2;
+      const xInput = paddingX;
+      const xHidden = paddingX + layerSpacing;
+      const xOutput = paddingX + layerSpacing * 2;
+      
+      // 각 층 노드들을 수직 균등 배치 (y 좌표)
+      function getNodeY(index, totalCount) {
+        const paddingY = 50;
+        const availableHeight = canvas.height - 2 * paddingY;
+        return paddingY + (index + 0.5) * (availableHeight / totalCount);
+      }
+      
+      // 노드 좌표 배열 생성
+      const inputNodes = Array.from({length: inputSize}, (_, i) => ({ x: xInput, y: getNodeY(i, inputSize) }));
+      const hiddenNodes = Array.from({length: hiddenSize}, (_, i) => ({ x: xHidden, y: getNodeY(i, hiddenSize) }));
+      const outputNodes = Array.from({length: outputSize}, (_, i) => ({ x: xOutput, y: getNodeY(i, outputSize) }));
+      
+      // 연결 정보를 저장할 배열 초기화
+      connections = [];
+      
+      // 노드와 연결을 그리는 함수
+      function drawNode(x, y, label) {
+        ctx.beginPath();
+        ctx.arc(x, y, 15, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
+        ctx.strokeStyle = "#000";
+        ctx.stroke();
+        ctx.fillStyle = "#000";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, x, y);
+      }
+      
+      function drawConnection(from, to, weight) {
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        const absWeight = Math.abs(weight);
+        ctx.lineWidth = Math.min(Math.max(absWeight, 1), 5);
+        ctx.strokeStyle = weight >= 0 ? `rgba(0,0,255,${Math.min(absWeight,1)})` : `rgba(255,0,0,${Math.min(absWeight,1)})`;
+        ctx.stroke();
+        // 연결 정보를 저장 (선분의 양 끝 점과 weight)
+        connections.push({ x1: from.x, y1: from.y, x2: to.x, y2: to.y, weight });
+      }
+      
+      // 캔버스 클리어
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // 입력→은닉 연결 그리기
+      for (let i = 0; i < inputSize; i++) {
+        for (let j = 0; j < hiddenSize; j++) {
+          drawConnection(inputNodes[i], hiddenNodes[j], weights1[i][j]);
+        }
+      }
+      
+      // 은닉→출력 연결 그리기
+      for (let i = 0; i < hiddenSize; i++) {
+        for (let j = 0; j < outputSize; j++) {
+          drawConnection(hiddenNodes[i], outputNodes[j], weights2[i][j]);
+        }
+      }
+      
+      // 노드 그리기 (각 층별)
+      inputNodes.forEach((node, i) => drawNode(node.x, node.y, `I${i}`));
+      hiddenNodes.forEach((node, i) => drawNode(node.x, node.y, `H${i}`));
+      outputNodes.forEach((node, i) => drawNode(node.x, node.y, `O${i}`));
+    }
+    
+    // 마우스 호버 이벤트: 연결 선분 근처에 마우스가 있으면 가중치 값 툴팁 표시
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const threshold = 5;  // 마우스와 선분 사이의 임계 거리 (픽셀)
+      let found = false;
+      for (let conn of connections) {
+        const dist = pointToLineDistance(mouseX, mouseY, conn.x1, conn.y1, conn.x2, conn.y2);
+        if (dist < threshold) {
+          // 선분 근처라면 툴팁에 가중치 표시
+          tooltip.style.left = (e.clientX) + 'px';
+          tooltip.style.top = (e.clientY) + 'px';
+          tooltip.textContent = `Weight: ${conn.weight.toFixed(3)}`;
+          tooltip.style.display = 'block';
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        tooltip.style.display = 'none';
+      }
+    });
+    
+    // 두 점 (x1,y1)-(x2,y2) 선분에 대한, 점 (px,py)와의 최소 거리를 계산하는 함수
+    function pointToLineDistance(px, py, x1, y1, x2, y2) {
+      const A = px - x1;
+      const B = py - y1;
+      const C = x2 - x1;
+      const D = y2 - y1;
+      
+      const dot = A * C + B * D;
+      const len_sq = C * C + D * D;
+      let param = -1;
+      if (len_sq !== 0) { // 0이면 선분이 한 점
+        param = dot / len_sq;
+      }
+      
+      let xx, yy;
+      if (param < 0) {
+        xx = x1;
+        yy = y1;
+      } else if (param > 1) {
+        xx = x2;
+        yy = y2;
+      } else {
+        xx = x1 + param * C;
+        yy = y1 + param * D;
+      }
+      
+      const dx = px - xx;
+      const dy = py - yy;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+  </script>
+</body>
+</html>

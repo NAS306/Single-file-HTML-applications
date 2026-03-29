@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Same-Luminance Color Painter</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 2rem;
+    }
+    canvas {
+      border: 1px solid #333;
+      cursor: none;
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 1;
+    }
+    #gray-overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 2;
+      pointer-events: none;
+      backdrop-filter: grayscale(100%);
+      -webkit-backdrop-filter: grayscale(100%);
+      width: 100%;
+      height: 100%;
+      display: none;
+    }
+    #canvas-container {
+      position: relative;
+      display: inline-block;
+      width: 400px;
+      height: 400px;
+    }
+    #cursor-preview {
+      position: absolute;
+      pointer-events: none;
+      border: 1px solid #000;
+      border-radius: 50%;
+      box-sizing: border-box;
+      z-index: 3;
+    }
+    #controls {
+      margin-top: 1rem;
+    }
+    #palette {
+      margin-top: 0.5rem;
+    }
+    .color-swatch {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      margin: 2px;
+      border: 1px solid #ccc;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Same-Luminance Color Painter</h1>
+  <div id="canvas-container">
+    <canvas id="canvas" width="400" height="400"></canvas>
+    <div id="gray-overlay"></div>
+    <div id="cursor-preview"></div>
+  </div>
+
+  <div id="controls">
+    <label for="luminanceSelect">Luminance Model:</label>
+    <!-- 통합 옵션 추가 -->
+    <select id="luminanceSelect">
+      <option value="rec709">sRGB (Rec.709)</option>
+      <option value="ntsc">NTSC</option>
+      <option value="average">Average</option>
+      <option value="integrated">sRGB + NTSC 통합</option>
+    </select>
+    <label for="luminanceRange">Target Luminance:</label>
+    <input type="range" id="luminanceRange" min="0" max="255" value="128">
+    <span id="luminanceValue">128</span>
+    <button id="toggleGray">Toggle Grayscale</button>
+    <button id="downloadImage">Download Image</button>
+  </div>
+
+  <div id="palette"></div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const luminanceSelect = document.getElementById('luminanceSelect');
+    const luminanceRange = document.getElementById('luminanceRange');
+    const luminanceValue = document.getElementById('luminanceValue');
+    const toggleGray = document.getElementById('toggleGray');
+    const palette = document.getElementById('palette');
+    const cursorPreview = document.getElementById('cursor-preview');
+    const grayOverlay = document.getElementById('gray-overlay');
+    const downloadImage = document.getElementById('downloadImage');
+
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+    let currentColor = '#000000';
+    let grayscaleMode = false;
+    let lineWidth = 32;
+    let originalImage = null;
+    let undoStack = [], redoStack = [];
+
+    function saveState() {
+      undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+      if (undoStack.length > 100) undoStack.shift();
+      redoStack = [];
+    }
+
+    function undo() {
+      if (undoStack.length > 0) {
+        const imageData = undoStack.pop();
+        redoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        ctx.putImageData(imageData, 0, 0);
+      }
+    }
+
+    function redo() {
+      if (redoStack.length > 0) {
+        const imageData = redoStack.pop();
+        undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        ctx.putImageData(imageData, 0, 0);
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'z') {
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      }
+    });
+
+    const luminanceModels = {
+      rec709: (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b,
+      ntsc: (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b,
+      average: (r, g, b) => (r + g + b) / 3,
+    };
+
+    function drawPalette() {
+      palette.innerHTML = '';
+      const mode = luminanceSelect.value;
+      const targetLuminance = parseInt(luminanceRange.value);
+      const tolerance = 1;
+
+      for (let r = 0; r <= 255; r += 16) {
+        for (let g = 0; g <= 255; g += 16) {
+          for (let b = 0; b <= 255; b += 16) {
+            let condition = false;
+            if (mode === 'integrated') {
+              // 통합모드: rec709와 NTSC 모두 조건을 만족해야 함
+              condition = Math.abs(luminanceModels.rec709(r, g, b) - targetLuminance) < tolerance &&
+                          Math.abs(luminanceModels.ntsc(r, g, b) - targetLuminance) < tolerance;
+            } else {
+              // 단일 모드: 선택한 모델만 조건 검사
+              condition = Math.abs(luminanceModels[mode](r, g, b) - targetLuminance) < tolerance;
+            }
+            if (condition) {
+              const swatch = document.createElement('div');
+              swatch.className = 'color-swatch';
+              swatch.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+              swatch.onclick = () => {
+                currentColor = `rgb(${r}, ${g}, ${b})`;
+              };
+              palette.appendChild(swatch);
+            }
+          }
+        }
+      }
+    }
+
+    function applyLuminanceMappingToImage() {
+      if (!originalImage) return;
+
+      const mode = luminanceSelect.value;
+      const targetLuminance = parseInt(luminanceRange.value);
+      const tolerance = 1;
+      ctx.putImageData(originalImage, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        let best = null;
+        let bestDiff = Infinity;
+        for (let rr = 0; rr <= 255; rr += 16) {
+          for (let gg = 0; gg <= 255; gg += 16) {
+            for (let bb = 0; bb <= 255; bb += 16) {
+              let condition = false;
+              if (mode === 'integrated') {
+                // 통합모드: 두 모델 모두 타겟 휘도와의 차이가 tolerance 이내
+                condition = Math.abs(luminanceModels.rec709(rr, gg, bb) - targetLuminance) < tolerance &&
+                            Math.abs(luminanceModels.ntsc(rr, gg, bb) - targetLuminance) < tolerance;
+              } else {
+                condition = Math.abs(luminanceModels[mode](rr, gg, bb) - targetLuminance) < tolerance;
+              }
+              if (condition) {
+                const diff = Math.abs(rr - r) + Math.abs(gg - g) + Math.abs(bb - b);
+                if (diff < bestDiff) {
+                  best = { r: rr, g: gg, b: bb };
+                  bestDiff = diff;
+                }
+              }
+            }
+          }
+        }
+
+        if (best) {
+          data[i] = best.r;
+          data[i + 1] = best.g;
+          data[i + 2] = best.b;
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    luminanceSelect.addEventListener('change', () => {
+      drawPalette();
+      applyLuminanceMappingToImage();
+    });
+
+    luminanceRange.addEventListener('input', () => {
+      luminanceValue.textContent = luminanceRange.value;
+      drawPalette();
+      applyLuminanceMappingToImage();
+    });
+
+    drawPalette();
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDrawing = true;
+      const rect = canvas.getBoundingClientRect();
+      lastX = e.clientX - rect.left;
+      lastY = e.clientY - rect.top;
+      saveState();
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      cursorPreview.style.width = `${lineWidth}px`;
+      cursorPreview.style.height = `${lineWidth}px`;
+      cursorPreview.style.left = `${x - lineWidth / 2}px`;
+      cursorPreview.style.top = `${y - lineWidth / 2}px`;
+      cursorPreview.style.backgroundColor = currentColor;
+
+      if (isDrawing) {
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        lastX = x;
+        lastY = y;
+      }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      isDrawing = false;
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      lineWidth += e.deltaY > 0 ? -1 : 1;
+      lineWidth = Math.max(1, Math.min(100, lineWidth));
+    });
+
+    toggleGray.addEventListener('click', () => {
+      grayscaleMode = !grayscaleMode;
+      grayOverlay.style.display = grayscaleMode ? 'block' : 'none';
+    });
+
+    downloadImage.addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'canvas.png';
+      link.href = canvas.toDataURL();
+      link.click();
+    });
+
+    document.body.addEventListener('dragover', e => e.preventDefault());
+    document.body.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (!file.type.startsWith('image/')) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const img = new Image();
+        img.onload = function() {
+          canvas.width = 400;
+          canvas.height = 400;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const aspect = img.width / img.height;
+          let drawWidth = 400, drawHeight = 400;
+          if (aspect > 1) {
+            drawWidth = 400;
+            drawHeight = 400 / aspect;
+          } else {
+            drawHeight = 400;
+            drawWidth = 400 * aspect;
+          }
+          const offsetX = (400 - drawWidth) / 2;
+          const offsetY = (400 - drawHeight) / 2;
+          ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+          originalImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          applyLuminanceMappingToImage();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  </script>
+</body>
+</html>

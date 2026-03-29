@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>NumPad Drill Trainer</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+	<style>
+		:root {
+			--bg-1: #f5fbff;
+			--bg-2: #e7efff;
+			--ink: #15213a;
+			--muted: #5e6a86;
+			--accent: #0a7d6f;
+			--accent-2: #f07d36;
+			--panel: rgba(255, 255, 255, 0.88);
+			--line: #b8c7e7;
+			--ok: #1f9d4b;
+			--bad: #d23b3b;
+			--shadow: 0 12px 24px rgba(35, 54, 96, 0.12);
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			margin: 0;
+			min-height: 100vh;
+			font-family: "Space Grotesk", "Segoe UI", sans-serif;
+			color: var(--ink);
+			background:
+				radial-gradient(circle at 10% 15%, #ffffff, transparent 42%),
+				radial-gradient(circle at 85% 90%, #d8ffe7, transparent 30%),
+				linear-gradient(130deg, var(--bg-1), var(--bg-2));
+			padding: 18px;
+		}
+
+		.app {
+			max-width: 1100px;
+			margin: 0 auto;
+			display: grid;
+			gap: 16px;
+			grid-template-columns: 1fr;
+		}
+
+		.card {
+			background: var(--panel);
+			border: 1px solid rgba(255, 255, 255, 0.9);
+			border-radius: 16px;
+			box-shadow: var(--shadow);
+			backdrop-filter: blur(4px);
+			padding: 14px;
+		}
+
+		.title {
+			margin: 0;
+			font-size: clamp(1.4rem, 2.6vw, 2rem);
+			letter-spacing: 0.3px;
+		}
+
+		.sub {
+			margin-top: 6px;
+			color: var(--muted);
+			font-size: 0.95rem;
+		}
+
+		.mode-row,
+		.action-row,
+		.stat-row {
+			display: flex;
+			gap: 10px;
+			flex-wrap: wrap;
+			align-items: center;
+		}
+
+		.btn {
+			font-family: inherit;
+			border: 1px solid transparent;
+			border-radius: 12px;
+			padding: 9px 14px;
+			font-size: 0.95rem;
+			cursor: pointer;
+			transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+			background: #f2f6ff;
+			color: var(--ink);
+		}
+
+		.btn:hover {
+			transform: translateY(-1px);
+			box-shadow: 0 6px 12px rgba(34, 61, 121, 0.14);
+		}
+
+		.btn:disabled {
+			cursor: not-allowed;
+			opacity: 0.6;
+			transform: none;
+			box-shadow: none;
+		}
+
+		.btn.active {
+			background: linear-gradient(130deg, #0a7d6f, #157fb3);
+			color: #fff;
+		}
+
+		.btn.warn {
+			background: #fff4ec;
+			border-color: #f7c5a4;
+			color: #9d3f0f;
+		}
+
+		.drill-grid {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 12px;
+		}
+
+		.prompt {
+			font-family: "JetBrains Mono", monospace;
+			font-size: clamp(1.7rem, 5vw, 2.4rem);
+			letter-spacing: 1px;
+			margin: 4px 0 8px;
+			min-height: 44px;
+			color: #0f2d63;
+		}
+
+		.typed {
+			font-family: "JetBrains Mono", monospace;
+			font-size: 1.25rem;
+			min-height: 28px;
+			color: #253f75;
+			background: #f0f5ff;
+			border: 1px dashed var(--line);
+			border-radius: 10px;
+			padding: 7px 10px;
+		}
+
+		.feedback {
+			min-height: 24px;
+			font-weight: 700;
+		}
+
+		.feedback.ok {
+			color: var(--ok);
+		}
+
+		.feedback.bad {
+			color: var(--bad);
+		}
+
+		.arena-wrap {
+			border: 1px dashed #94a9d8;
+			border-radius: 14px;
+			min-height: 220px;
+			background:
+				linear-gradient(180deg, #f8fbff, #eef5ff),
+				repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(92, 120, 184, 0.05) 12px, rgba(92, 120, 184, 0.05) 24px);
+			position: relative;
+			overflow: hidden;
+		}
+
+		.floating-btn {
+			position: absolute;
+			border: none;
+			border-radius: 999px;
+			padding: 10px 14px;
+			font-weight: 700;
+			color: #fff;
+			background: linear-gradient(120deg, #f07d36, #e5404b);
+			cursor: pointer;
+			box-shadow: 0 8px 16px rgba(176, 64, 24, 0.3);
+			animation: pulse 1s infinite alternate ease-in-out;
+		}
+
+		@keyframes pulse {
+			from { transform: scale(1); }
+			to { transform: scale(1.08); }
+		}
+
+		.meta {
+			color: var(--muted);
+			font-size: 0.92rem;
+		}
+
+		canvas {
+			width: 100%;
+			height: 250px;
+			border-radius: 12px;
+			background: linear-gradient(180deg, #ffffff, #f6f8ff);
+			border: 1px solid #d8e0f3;
+		}
+
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 0.9rem;
+		}
+
+		th,
+		td {
+			text-align: left;
+			padding: 8px 6px;
+			border-bottom: 1px solid #ebeff9;
+		}
+
+		@media (min-width: 900px) {
+			.app {
+				grid-template-columns: 1.2fr 1fr;
+			}
+
+			.top-card {
+				grid-column: 1 / -1;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div class="app">
+		<section class="card top-card">
+			<h1 class="title">NumPad Drill Trainer</h1>
+			<p class="sub">한 손 넘패드 속도/정확도 훈련. 각 모드는 10회 반복 후 평균 속도와 정확도를 계산합니다.</p>
+
+			<div class="mode-row" style="margin-top: 10px;">
+				<button id="modeMouse" class="btn active">마우스 + 넘패드</button>
+				<button id="modeOnly" class="btn">넘패드 Only</button>
+			</div>
+
+			<div class="action-row" style="margin-top: 10px;">
+				<button id="startBtn" class="btn">세션 시작</button>
+				<button id="nextBtn" class="btn" disabled>정답 입력 후 Enter</button>
+				<button id="resetBtn" class="btn warn">기록 초기화</button>
+			</div>
+
+			<div class="stat-row" style="margin-top: 10px;">
+				<span id="progress" class="meta">진행: 0 / 10</span>
+				<span id="status" class="meta">상태: 시작 대기</span>
+			</div>
+		</section>
+
+		<section class="card">
+			<div class="drill-grid">
+				<div id="prompt" class="prompt">----</div>
+				<div id="typed" class="typed">입력: </div>
+				<div id="feedback" class="feedback"></div>
+				<div id="arenaWrap" class="arena-wrap"></div>
+			</div>
+			<p class="meta" style="margin-top: 10px;">
+				입력 규칙: 숫자패드 `0-9`, 상단 숫자키 `0-9`, `Backspace`, `Enter`를 인식합니다.
+			</p>
+		</section>
+
+		<section class="card">
+			<h2 style="margin: 0 0 10px;">최근 결과</h2>
+			<div id="resultSummary" class="meta">아직 완료된 세션이 없습니다.</div>
+			<table id="historyTable" style="margin-top: 10px;">
+				<thead>
+					<tr>
+						<th>일시</th>
+						<th>모드</th>
+						<th>정확도</th>
+						<th>평균 반응(초)</th>
+						<th>입력 속도(CPM)</th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</section>
+
+		<section class="card">
+			<h2 style="margin: 0 0 10px;">향상 그래프 (모드별 최근 100개, 총 최대 200개)</h2>
+			<canvas id="chart" width="900" height="260"></canvas>
+		</section>
+	</div>
+
+	<script>
+		(function () {
+			"use strict";
+
+			const STORAGE_KEY = "numpadDrillHistory";
+			const MAX_HISTORY_PER_MODE = 100;
+			const TOTAL_HISTORY_LIMIT = MAX_HISTORY_PER_MODE * 2;
+			const ROUNDS = 10;
+
+			const ui = {
+				modeMouse: document.getElementById("modeMouse"),
+				modeOnly: document.getElementById("modeOnly"),
+				startBtn: document.getElementById("startBtn"),
+				nextBtn: document.getElementById("nextBtn"),
+				resetBtn: document.getElementById("resetBtn"),
+				prompt: document.getElementById("prompt"),
+				typed: document.getElementById("typed"),
+				feedback: document.getElementById("feedback"),
+				progress: document.getElementById("progress"),
+				status: document.getElementById("status"),
+				arenaWrap: document.getElementById("arenaWrap"),
+				resultSummary: document.getElementById("resultSummary"),
+				historyTableBody: document.querySelector("#historyTable tbody"),
+				chart: document.getElementById("chart")
+			};
+
+			const state = {
+				mode: "mouse", // mouse | only
+				isRunning: false,
+				round: 0,
+				currentTarget: "",
+				currentInput: "",
+				canType: false,
+				roundStartAt: 0,
+				sessionStartAt: 0,
+				roundsData: [],
+				history: loadHistory()
+			};
+
+			function loadHistory() {
+				try {
+					const raw = localStorage.getItem(STORAGE_KEY);
+					if (!raw) return [];
+					const parsed = JSON.parse(raw);
+					if (!Array.isArray(parsed)) return [];
+					return trimHistoryPerMode(parsed);
+				} catch (_) {
+					return [];
+				}
+			}
+
+			function saveHistory() {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(trimHistoryPerMode(state.history)));
+			}
+
+			function trimHistoryPerMode(history) {
+				const keep = [];
+				const perModeCount = { mouse: 0, only: 0 };
+
+				for (let i = history.length - 1; i >= 0; i -= 1) {
+					const item = history[i];
+					if (!item || (item.mode !== "mouse" && item.mode !== "only")) continue;
+					if (perModeCount[item.mode] >= MAX_HISTORY_PER_MODE) continue;
+					perModeCount[item.mode] += 1;
+					keep.push(item);
+				}
+
+				return keep.reverse().slice(-TOTAL_HISTORY_LIMIT);
+			}
+
+			function randomNumberString() {
+				const len = Math.random() < 0.5 ? 4 : 5;
+				let out = "";
+				for (let i = 0; i < len; i += 1) {
+					out += Math.floor(Math.random() * 10).toString();
+				}
+				return out;
+			}
+
+			function setMode(mode) {
+				state.mode = mode;
+				ui.modeMouse.classList.toggle("active", mode === "mouse");
+				ui.modeOnly.classList.toggle("active", mode === "only");
+				ui.status.textContent = "상태: 시작 대기";
+				ui.feedback.textContent = "";
+				ui.feedback.className = "feedback";
+				resetRoundUI();
+			}
+
+			function resetRoundUI() {
+				state.currentTarget = "";
+				state.currentInput = "";
+				state.canType = false;
+				ui.prompt.textContent = "----";
+				ui.typed.textContent = "입력: ";
+				ui.nextBtn.disabled = true;
+				drawArenaButton(false);
+			}
+
+			function startSession() {
+				state.isRunning = true;
+				state.round = 0;
+				state.roundsData = [];
+				state.currentInput = "";
+				state.currentTarget = "";
+				state.canType = false;
+				state.roundStartAt = 0;
+				state.sessionStartAt = 0;
+
+				ui.feedback.textContent = "";
+				ui.feedback.className = "feedback";
+				ui.progress.textContent = `진행: 0 / ${ROUNDS}`;
+				ui.status.textContent = "상태: 세션 시작";
+
+				if (state.mode === "mouse") {
+					ui.prompt.textContent = "버튼 클릭 후 숫자 표시";
+					drawArenaButton(true);
+				} else {
+					drawArenaButton(false);
+					prepareNextRound();
+				}
+			}
+
+			function drawArenaButton(show) {
+				ui.arenaWrap.innerHTML = "";
+				if (!show || !state.isRunning || state.mode !== "mouse") return;
+
+				const btn = document.createElement("button");
+				btn.className = "floating-btn";
+				btn.textContent = "Click";
+
+				const arenaRect = ui.arenaWrap.getBoundingClientRect();
+				const maxX = Math.max(20, arenaRect.width - 90);
+				const maxY = Math.max(20, arenaRect.height - 54);
+				btn.style.left = `${Math.floor(Math.random() * maxX)}px`;
+				btn.style.top = `${Math.floor(Math.random() * maxY)}px`;
+
+				btn.addEventListener("click", () => {
+					if (!state.isRunning) return;
+					if (state.round >= ROUNDS) return;
+					prepareNextRound();
+				});
+
+				ui.arenaWrap.appendChild(btn);
+			}
+
+			function prepareNextRound() {
+				if (state.round >= ROUNDS) {
+					finishSession();
+					return;
+				}
+
+				state.round += 1;
+				state.currentTarget = randomNumberString();
+				state.currentInput = "";
+				state.canType = true;
+
+				// Each mode starts timing when the first actionable button is pressed.
+				if (state.sessionStartAt === 0) {
+					state.sessionStartAt = performance.now();
+				}
+				state.roundStartAt = performance.now();
+
+				ui.prompt.textContent = state.currentTarget;
+				ui.typed.textContent = "입력: ";
+				ui.progress.textContent = `진행: ${state.round} / ${ROUNDS}`;
+				ui.status.textContent = "상태: 입력 중";
+				ui.nextBtn.disabled = false;
+
+				if (state.mode === "mouse") {
+					drawArenaButton(false);
+				}
+			}
+
+			function submitRound() {
+				if (!state.isRunning || !state.canType) return;
+
+				const elapsedMs = Math.max(1, performance.now() - state.roundStartAt);
+				const isCorrect = state.currentInput === state.currentTarget;
+
+				state.roundsData.push({
+					round: state.round,
+					target: state.currentTarget,
+					input: state.currentInput,
+					correct: isCorrect,
+					elapsedMs
+				});
+
+				ui.feedback.textContent = isCorrect
+					? `라운드 ${state.round}: 정답`
+					: `라운드 ${state.round}: 오답 (${state.currentInput || "빈 입력"})`;
+				ui.feedback.className = `feedback ${isCorrect ? "ok" : "bad"}`;
+
+				state.canType = false;
+				ui.nextBtn.disabled = true;
+
+				if (state.round >= ROUNDS) {
+					finishSession();
+					return;
+				}
+
+				if (state.mode === "mouse") {
+					ui.status.textContent = "상태: 다음 버튼 클릭 대기";
+					ui.prompt.textContent = "버튼 클릭 후 숫자 표시";
+					ui.typed.textContent = "입력: ";
+					drawArenaButton(true);
+				} else {
+					prepareNextRound();
+				}
+			}
+
+			function finishSession() {
+				state.isRunning = false;
+				state.canType = false;
+				drawArenaButton(false);
+				ui.nextBtn.disabled = true;
+				ui.status.textContent = "상태: 완료";
+
+				const totalRounds = state.roundsData.length;
+				const correctCount = state.roundsData.filter((x) => x.correct).length;
+				const totalElapsedMs = state.roundsData.reduce((acc, x) => acc + x.elapsedMs, 0);
+				const totalDigits = state.roundsData.reduce((acc, x) => acc + x.target.length, 0);
+
+				const accuracy = totalRounds > 0 ? (correctCount / totalRounds) * 100 : 0;
+				const avgMs = totalRounds > 0 ? totalElapsedMs / totalRounds : 0;
+				const cpm = totalElapsedMs > 0 ? (totalDigits / (totalElapsedMs / 60000)) : 0;
+
+				const record = {
+					ts: new Date().toISOString(),
+					mode: state.mode,
+					accuracy,
+					avgMs,
+					cpm,
+					rounds: totalRounds
+				};
+
+				state.history.push(record);
+				state.history = trimHistoryPerMode(state.history);
+				saveHistory();
+
+				ui.resultSummary.textContent = `${modeLabel(record.mode)} | 정확도 ${accuracy.toFixed(1)}% | 평균 반응 ${(avgMs / 1000).toFixed(2)}초 | ${Math.round(cpm)} CPM`;
+				renderHistoryTable();
+				renderChart();
+			}
+
+			function modeLabel(mode) {
+				return mode === "mouse" ? "마우스+넘패드" : "넘패드 Only";
+			}
+
+			function onKeydown(event) {
+				if (!state.isRunning || !state.canType) return;
+
+				const code = event.code;
+				const isNumpadDigit = code.startsWith("Numpad") && /^Numpad[0-9]$/.test(code);
+				const isTopDigit = /^Digit[0-9]$/.test(code);
+				const isBackspace = code === "Backspace";
+				const isEnter = code === "NumpadEnter" || code === "Enter";
+
+				if (!isNumpadDigit && !isTopDigit && !isBackspace && !isEnter) return;
+				event.preventDefault();
+
+				if (isNumpadDigit || isTopDigit) {
+					state.currentInput += isNumpadDigit
+						? code.replace("Numpad", "")
+						: code.replace("Digit", "");
+					ui.typed.textContent = `입력: ${state.currentInput}`;
+					return;
+				}
+
+				if (isBackspace) {
+					state.currentInput = state.currentInput.slice(0, -1);
+					ui.typed.textContent = `입력: ${state.currentInput}`;
+					return;
+				}
+
+				if (isEnter) {
+					submitRound();
+				}
+			}
+
+			function formatTime(iso) {
+				const d = new Date(iso);
+				const y = d.getFullYear();
+				const m = String(d.getMonth() + 1).padStart(2, "0");
+				const day = String(d.getDate()).padStart(2, "0");
+				const hh = String(d.getHours()).padStart(2, "0");
+				const mm = String(d.getMinutes()).padStart(2, "0");
+				return `${y}-${m}-${day} ${hh}:${mm}`;
+			}
+
+			function renderHistoryTable() {
+				const rows = state.history.slice().reverse().slice(0, 12);
+				ui.historyTableBody.innerHTML = rows.map((r) => {
+					return `<tr>
+						<td>${formatTime(r.ts)}</td>
+						<td>${modeLabel(r.mode)}</td>
+						<td>${r.accuracy.toFixed(1)}%</td>
+						<td>${(r.avgMs / 1000).toFixed(2)}</td>
+						<td>${Math.round(r.cpm)}</td>
+					</tr>`;
+				}).join("");
+			}
+
+			function drawLine(ctx, points, color) {
+				if (points.length === 0) return;
+				ctx.beginPath();
+				ctx.lineWidth = 2;
+				ctx.strokeStyle = color;
+				ctx.moveTo(points[0].x, points[0].y);
+				for (let i = 1; i < points.length; i += 1) {
+					ctx.lineTo(points[i].x, points[i].y);
+				}
+				ctx.stroke();
+			}
+
+			function renderChart() {
+				const canvas = ui.chart;
+				const ctx = canvas.getContext("2d");
+				const w = canvas.width;
+				const h = canvas.height;
+				const pad = { l: 52, r: 56, t: 16, b: 38 };
+
+				ctx.clearRect(0, 0, w, h);
+				ctx.fillStyle = "#fcfdff";
+				ctx.fillRect(0, 0, w, h);
+
+				const all = state.history.slice(-TOTAL_HISTORY_LIMIT);
+				if (all.length === 0) {
+					ctx.fillStyle = "#6f7f9d";
+					ctx.font = "16px Space Grotesk";
+					ctx.fillText("아직 기록이 없습니다.", 20, 34);
+					return;
+				}
+
+				const chartW = w - pad.l - pad.r;
+				const chartH = h - pad.t - pad.b;
+
+				const maxAcc = 100;
+				const minAcc = 0;
+				const rawMaxCpm = Math.max(120, ...all.map((x) => Number(x.cpm) || 0));
+				const maxCpm = Math.ceil(rawMaxCpm / 50) * 50;
+				const minCpm = 0;
+
+				ctx.strokeStyle = "#d6dfef";
+				ctx.lineWidth = 1;
+				for (let i = 0; i <= 5; i += 1) {
+					const y = pad.t + (chartH * i / 5);
+					ctx.beginPath();
+					ctx.moveTo(pad.l, y);
+					ctx.lineTo(w - pad.r, y);
+					ctx.stroke();
+					const leftVal = (maxAcc - ((maxAcc - minAcc) * i / 5)).toFixed(0);
+					const rightVal = Math.round(maxCpm - ((maxCpm - minCpm) * i / 5));
+					ctx.fillStyle = "#7a8aab";
+					ctx.font = "12px Space Grotesk";
+					ctx.fillText(`${leftVal}%`, 10, y + 4);
+					ctx.fillText(`${rightVal}`, w - pad.r + 8, y + 4);
+				}
+
+				ctx.strokeStyle = "#8ca2ce";
+				ctx.beginPath();
+				ctx.moveTo(pad.l, h - pad.b);
+				ctx.lineTo(w - pad.r, h - pad.b);
+				ctx.stroke();
+
+				const indexed = all.map((x, idx) => ({ ...x, idx }));
+				const mouseData = indexed.filter((x) => x.mode === "mouse");
+				const onlyData = indexed.filter((x) => x.mode === "only");
+
+				function mapPoint(item, key, minY, maxY) {
+					const x = pad.l + (item.idx / Math.max(1, all.length - 1)) * chartW;
+					const value = Number(item[key]) || 0;
+					const y = pad.t + (1 - (value - minY) / Math.max(1, (maxY - minY))) * chartH;
+					return { x, y };
+				}
+
+				const mouseAccPoints = mouseData.map((x) => mapPoint(x, "accuracy", minAcc, maxAcc));
+				const mouseSpeedPoints = mouseData.map((x) => mapPoint(x, "cpm", minCpm, maxCpm));
+				const onlyAccPoints = onlyData.map((x) => mapPoint(x, "accuracy", minAcc, maxAcc));
+				const onlySpeedPoints = onlyData.map((x) => mapPoint(x, "cpm", minCpm, maxCpm));
+
+				drawLine(ctx, mouseAccPoints, "#0a7d6f");
+				drawLine(ctx, mouseSpeedPoints, "#157fb3");
+				drawLine(ctx, onlyAccPoints, "#f07d36");
+				drawLine(ctx, onlySpeedPoints, "#d23b3b");
+
+				mouseAccPoints.forEach((p) => {
+					ctx.fillStyle = "#0a7d6f";
+					ctx.beginPath();
+					ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+					ctx.fill();
+				});
+
+				mouseSpeedPoints.forEach((p) => {
+					ctx.fillStyle = "#157fb3";
+					ctx.beginPath();
+					ctx.arc(p.x, p.y, 2.8, 0, Math.PI * 2);
+					ctx.fill();
+				});
+
+				onlyAccPoints.forEach((p) => {
+					ctx.fillStyle = "#f07d36";
+					ctx.beginPath();
+					ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+					ctx.fill();
+				});
+
+				onlySpeedPoints.forEach((p) => {
+					ctx.fillStyle = "#d23b3b";
+					ctx.beginPath();
+					ctx.arc(p.x, p.y, 2.8, 0, Math.PI * 2);
+					ctx.fill();
+				});
+
+				ctx.font = "12px Space Grotesk";
+				ctx.fillStyle = "#7a8aab";
+				ctx.fillText("왼쪽 축: 정확도(%)", 12, h - 12);
+				ctx.fillText("오른쪽 축: 속도(CPM)", w - 144, h - 12);
+
+				const legendX = w - 194;
+				const legendY = 12;
+				const legendItems = [
+					{ color: "#0a7d6f", label: "마우스 정확도" },
+					{ color: "#157fb3", label: "마우스 속도" },
+					{ color: "#f07d36", label: "Only 정확도" },
+					{ color: "#d23b3b", label: "Only 속도" }
+				];
+
+				legendItems.forEach((item, idx) => {
+					const y = legendY + idx * 16;
+					ctx.fillStyle = item.color;
+					ctx.fillRect(legendX, y, 10, 10);
+					ctx.fillStyle = "#33466f";
+					ctx.fillText(item.label, legendX + 14, y + 9);
+				});
+			}
+
+			ui.modeMouse.addEventListener("click", () => {
+				if (state.isRunning) return;
+				setMode("mouse");
+			});
+
+			ui.modeOnly.addEventListener("click", () => {
+				if (state.isRunning) return;
+				setMode("only");
+			});
+
+			ui.startBtn.addEventListener("click", () => {
+				startSession();
+			});
+
+			ui.nextBtn.addEventListener("click", () => {
+				// Manual fallback in case keyboard Enter is unavailable.
+				submitRound();
+			});
+
+			ui.resetBtn.addEventListener("click", () => {
+				if (!confirm("저장된 기록(최대 100개)을 모두 삭제할까요?")) return;
+				state.history = [];
+				saveHistory();
+				renderHistoryTable();
+				renderChart();
+				ui.resultSummary.textContent = "기록이 초기화되었습니다.";
+			});
+
+			window.addEventListener("keydown", onKeydown);
+
+			renderHistoryTable();
+			renderChart();
+			setMode("mouse");
+		})();
+	</script>
+</body>
+</html>

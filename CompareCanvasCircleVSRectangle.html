@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Canvas 성능 측정 (사각형 vs 원)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.45; padding: 24px; }
+    .row { display:flex; gap:24px; align-items: flex-start; flex-wrap: wrap; }
+    canvas { border:1px solid #ccc; background:#fff; }
+    button { padding: 10px 16px; font-size: 15px; cursor: pointer; }
+    .result { margin-top: 12px; font-size: 14px; }
+    .hint { color:#666; font-size:13px; }
+    label { display:block; margin: 6px 0 2px; }
+    input[type=number]{ width: 110px; padding:6px; }
+  </style>
+</head>
+<body>
+  <h1>JS Canvas 성능 측정: 사각형 vs 원 (각 10,000개)</h1>
+
+  <div class="row">
+    <div>
+      <button id="runBtn">측정하기</button>
+      <div class="hint">캔버스에 먼저 사각형 10,000개, 이어서 원 10,000개를 그립니다.</div>
+
+      <div style="margin-top: 12px;">
+        <label>캔버스 크기 (px)</label>
+        <input id="w" type="number" value="900" min="100"> ×
+        <input id="h" type="number" value="600" min="100">
+      </div>
+
+      <div style="margin-top: 12px;">
+        <label>사각형 한 변 범위 (px): <span id="rectRangeLabel">6–24</span></label>
+        <input id="rectMin" type="number" value="6" min="1"> –
+        <input id="rectMax" type="number" value="24" min="2">
+      </div>
+
+      <div style="margin-top: 12px;">
+        <label>원 반지름 범위 (px): <span id="circleRangeLabel">3–12</span></label>
+        <input id="circleMin" type="number" value="3" min="1"> –
+        <input id="circleMax" type="number" value="12" min="2">
+      </div>
+
+      <div class="result" id="out"></div>
+    </div>
+
+    <div>
+      <canvas id="cv" width="900" height="600"></canvas>
+      <div class="hint">고해상도 디스플레이에 맞춰 내부적으로 픽셀 배율을 적용합니다.</div>
+    </div>
+  </div>
+
+  <script>
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d', { alpha: true });
+
+    const runBtn = document.getElementById('runBtn');
+    const out = document.getElementById('out');
+
+    const wInput = document.getElementById('w');
+    const hInput = document.getElementById('h');
+    const rectMin = document.getElementById('rectMin');
+    const rectMax = document.getElementById('rectMax');
+    const circleMin = document.getElementById('circleMin');
+    const circleMax = document.getElementById('circleMax');
+    const rectRangeLabel = document.getElementById('rectRangeLabel');
+    const circleRangeLabel = document.getElementById('circleRangeLabel');
+
+    function updateRangeLabels() {
+      rectRangeLabel.textContent = `${rectMin.value}–${rectMax.value}`;
+      circleRangeLabel.textContent = `${circleMin.value}–${circleMax.value}`;
+    }
+    [rectMin, rectMax, circleMin, circleMax].forEach(el => el.addEventListener('input', updateRangeLabels));
+    updateRangeLabels();
+
+    function setupCanvasSize() {
+      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+      const w = parseInt(wInput.value, 10) || 900;
+      const h = parseInt(hInput.value, 10) || 600;
+      cv.style.width = w + 'px';
+      cv.style.height = h + 'px';
+      cv.width = Math.floor(w * dpr);
+      cv.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // 좌표계를 CSS 픽셀 기준으로 설정
+      ctx.fillStyle = '#000'; // 단일 색상(색상 변경은 성능에 영향)
+      ctx.lineWidth = 1;
+    }
+
+    function rand(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+    }
+
+    function flushSync() {
+      // 일부 브라우저에서 그리기 호출이 지연될 수 있어 강제로 동기화
+      try { ctx.getImageData(0, 0, 1, 1); } catch (e) {}
+    }
+
+    function drawRectangles(n, sizeMin, sizeMax) {
+      const W = parseInt(wInput.value, 10);
+      const H = parseInt(hInput.value, 10);
+      for (let i = 0; i < n; i++) {
+        const s = rand(sizeMin, sizeMax);
+        const x = rand(0, W - s);
+        const y = rand(0, H - s);
+        ctx.fillRect(x, y, s, s);
+      }
+    }
+
+    function drawCircles(n, rMin, rMax) {
+      const W = parseInt(wInput.value, 10);
+      const H = parseInt(hInput.value, 10);
+      for (let i = 0; i < n; i++) {
+        const r = rand(rMin, rMax);
+        const x = rand(r, W - r);
+        const y = rand(r, H - r);
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    async function measure() {
+      setupCanvasSize();
+      const N = 10000;
+
+      // 사각형
+      clearCanvas();
+      const rectMinV = Math.max(1, parseFloat(rectMin.value));
+      const rectMaxV = Math.max(rectMinV + 1, parseFloat(rectMax.value));
+      let t0 = performance.now();
+      drawRectangles(N, rectMinV, rectMaxV);
+      flushSync();
+      let t1 = performance.now();
+      const rectMs = t1 - t0;
+
+      // 원
+      clearCanvas();
+      const circleMinV = Math.max(1, parseFloat(circleMin.value));
+      const circleMaxV = Math.max(circleMinV + 1, parseFloat(circleMax.value));
+      t0 = performance.now();
+      drawCircles(N, circleMinV, circleMaxV);
+      flushSync();
+      t1 = performance.now();
+      const circleMs = t1 - t0;
+
+      out.innerHTML = `
+        <strong>결과</strong><br>
+        사각형 10,000개 (한 변 ${rectMinV.toFixed(0)}–${rectMaxV.toFixed(0)} px): <b>${rectMs.toFixed(2)} ms</b><br>
+        원 10,000개 (반지름 ${circleMinV.toFixed(0)}–${circleMaxV.toFixed(0)} px): <b>${circleMs.toFixed(2)} ms</b>
+      `;
+    }
+
+    runBtn.addEventListener('click', () => {
+      // 연속 클릭 시 레이아웃/GC 영향 줄이려 약간 양보
+      requestAnimationFrame(() => {
+        requestAnimationFrame(measure);
+      });
+    });
+
+    // 초기 사이즈 세팅
+    setupCanvasSize();
+  </script>
+</body>
+</html>

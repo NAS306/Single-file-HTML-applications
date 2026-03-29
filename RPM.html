@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>RPM Simulator</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 40px;
+    }
+    input {
+      width: 80px;
+    }
+    button {
+      margin: 5px;
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 24px;
+    }
+    #bulletDisplay {
+      margin-top: 10px;
+      font-size: 20px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    #description {
+      margin-top: 10px;
+      font-size: 16px;
+      color: #666;
+    }
+    #infoBox {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #444;
+    }
+    #contextMenu {
+      position: absolute;
+      display: none;
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 5px;
+      font-size: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+    #contextMenu div {
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    #contextMenu div:hover {
+      background-color: #eee;
+    }
+  </style>
+</head>
+<body>
+  <h1>RPM Simulator</h1>
+  <h2>Here, You can test how fast the rate of fire of variable guns are.</h2>
+
+  <div>
+    <strong>Gun Preset:</strong><br>
+    <div id="gunButtons"></div>
+    <button id="addPreset">+ Add Preset</button>
+  </div><br>
+
+  <label>RPM: <input type="number" id="rpmInput" value="600"></label>
+  <label>Ammo Capacity: <input type="number" id="ammoInput" value="30"></label><br><br>
+
+  <button id="fireButton">Shoot</button>
+
+  <div id="status">Ready to fire</div>
+  <div id="bulletDisplay"></div>
+  <div id="description"></div>
+  <div id="infoBox"></div>
+
+  <div id="contextMenu">
+    <div id="renameOption">Rename</div>
+    <div id="deleteOption">Delete</div>
+  </div>
+
+  <script>
+    const defaultGuns = [
+      { "name": "PP-19 Bizon", "rpm": 675, "magazine": 64, "desc": "Helical magazine, low recoil" },
+      { "name": "MP5", "rpm": 800, "magazine": 30, "desc": "German-made, favored by special forces" },
+      { "name": "AK-47", "rpm": 600, "magazine": 30, "desc": "Legendary reliability" },
+      { "name": "M4A1", "rpm": 850, "magazine": 30, "desc": "Standard assault rifle of the U.S. military" },
+      { "name": "Glock 18", "rpm": 1150, "magazine": 33, "desc": "Pistol capable of automatic fire" },
+      { "name": "P90", "rpm": 900, "magazine": 50, "desc": "Made by FN, 50-round top-mounted magazine" },
+      { "name": "Uzi", "rpm": 600, "magazine": 32, "desc": "Israeli-made classic submachine gun" },
+      { "name": "FAMAS", "rpm": 1000, "magazine": 25, "desc": "Bullpup design, used by the French military" },
+      { "name": "AUG A3", "rpm": 700, "magazine": 30, "desc": "Bullpup modular assault rifle" },
+      { "name": "Vector (KRISS)", "rpm": 1350, "magazine": 25, "desc": "Famous for its recoil suppression system" }
+    ];
+
+    let userPresets = JSON.parse(localStorage.getItem("userPresets") || "[]");
+
+    const rpmInput = document.getElementById("rpmInput");
+    const ammoInput = document.getElementById("ammoInput");
+    const fireButton = document.getElementById("fireButton");
+    const gunButtons = document.getElementById("gunButtons");
+    const description = document.getElementById("description");
+    const status = document.getElementById("status");
+    const bulletDisplay = document.getElementById("bulletDisplay");
+    const infoBox = document.getElementById("infoBox");
+    const addPresetBtn = document.getElementById("addPreset");
+    const contextMenu = document.getElementById("contextMenu");
+    const renameOption = document.getElementById("renameOption");
+    const deleteOption = document.getElementById("deleteOption");
+
+    let firing = false;
+    let interval;
+    let currentAmmo = 0;
+    let maxAmmo = 0;
+    let reloading = false;
+    let selectedUserPresetIndex = null;
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playThud() {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.1);
+    }
+
+    function applyAmmo(value) {
+      currentAmmo = value;
+      maxAmmo = value;
+      updateStatus();
+      updateInfoBox();
+    }
+
+    function updateStatus() {
+      status.textContent = reloading ? "Reloading..." : `Ammo Left: ${currentAmmo}`;
+      updateBullets();
+    }
+
+    function updateBullets() {
+      const perLine = 10;
+      let bars = "";
+      for (let i = 0; i < currentAmmo; i++) {
+        bars += "<b>|</b> ";
+        if ((i + 1) % perLine === 0) bars += "\n";
+      }
+      bulletDisplay.innerHTML = bars;
+    }
+
+    function updateInfoBox() {
+      const rpm = parseInt(rpmInput.value);
+      const ammo = parseInt(ammoInput.value);
+      if (!rpm || !ammo) {
+        infoBox.textContent = "";
+        return;
+      }
+      const seconds = (60 / rpm) * ammo;
+      infoBox.textContent = `🔄 Time to mag dump: ${seconds.toFixed(2)}seconds`;
+    }
+
+    function reload() {
+      reloading = true;
+      status.textContent = "Reloading...";
+      bulletDisplay.innerHTML = "";
+      currentAmmo = 0;
+
+      const delayPerBullet = 2000 / maxAmmo;
+      let loaded = 0;
+
+      const reloadInterval = setInterval(() => {
+        if (loaded < maxAmmo) {
+          loaded++;
+          currentAmmo = loaded;
+          updateBullets();
+        } else {
+          clearInterval(reloadInterval);
+          reloading = false;
+          updateStatus();
+        }
+      }, delayPerBullet);
+    }
+
+    function startFiring() {
+      if (reloading || firing) return;
+
+      firing = true;
+      const rpm = parseInt(rpmInput.value);
+      const delay = 60000 / rpm;
+
+      if (maxAmmo === 0) applyAmmo(parseInt(ammoInput.value));
+      updateStatus();
+
+      interval = setInterval(() => {
+        if (currentAmmo > 0) {
+          playThud();
+          currentAmmo--;
+          updateStatus();
+          if (currentAmmo === 0) {
+            stopFiring();
+            reload();
+          }
+        }
+      }, delay);
+    }
+
+    function stopFiring() {
+      clearInterval(interval);
+      firing = false;
+    }
+
+    function renderPresets() {
+      gunButtons.innerHTML = "";
+      [...defaultGuns, ...userPresets].forEach((gun, index) => {
+        const btn = document.createElement("button");
+        btn.textContent = gun.name;
+        btn.onmousedown = e => {
+          if (e.button === 2 && index >= defaultGuns.length) {
+            // 우클릭 - 사용자 프리셋만 메뉴 표시
+            e.preventDefault();
+            selectedUserPresetIndex = index - defaultGuns.length;
+            contextMenu.style.top = `${e.clientY}px`;
+            contextMenu.style.left = `${e.clientX}px`;
+            contextMenu.style.display = "block";
+          } else if (e.button === 0) {
+            rpmInput.value = gun.rpm;
+            ammoInput.value = gun.magazine;
+            description.textContent = gun.desc || gun.name;
+            applyAmmo(gun.magazine);
+          }
+        };
+        gunButtons.appendChild(btn);
+      });
+    }
+
+    addPresetBtn.onclick = () => {
+      const rpm = parseInt(rpmInput.value);
+      const mag = parseInt(ammoInput.value);
+      if (!rpm || !mag) return alert("Invalid RPM or Ammo capacity.");
+      const name = prompt("Enter preset name:", `User Preset ${userPresets.length + 1}`);
+      if (!name) return;
+      userPresets.push({ name, rpm, magazine: mag });
+      localStorage.setItem("userPresets", JSON.stringify(userPresets));
+      renderPresets();
+    };
+
+    renameOption.onclick = () => {
+      const preset = userPresets[selectedUserPresetIndex];
+      const newName = prompt("Enter new name:", preset.name);
+      if (newName) {
+        preset.name = newName;
+        saveAndRenderPresets();
+      }
+      contextMenu.style.display = "none";
+    };
+
+    deleteOption.onclick = () => {
+      if (confirm("Are you sure you want to delete this preset?")) {
+        userPresets.splice(selectedUserPresetIndex, 1);
+        saveAndRenderPresets();
+      }
+      contextMenu.style.display = "none";
+    };
+
+    function saveAndRenderPresets() {
+      localStorage.setItem("userPresets", JSON.stringify(userPresets));
+      renderPresets();
+    }
+
+    window.addEventListener("click", () => contextMenu.style.display = "none");
+
+    // 초기 설정
+    fireButton.addEventListener("mousedown", startFiring);
+    fireButton.addEventListener("mouseup", stopFiring);
+    fireButton.addEventListener("mouseleave", stopFiring);
+    document.addEventListener("keydown", e => {
+      if (e.code === "Space") {
+        startFiring();
+        e.preventDefault();
+      }
+    });
+    document.addEventListener("keyup", e => {
+      if (e.code === "Space") {
+        stopFiring();
+        e.preventDefault();
+      }
+    });
+    ammoInput.addEventListener("input", () => {
+      const val = parseInt(ammoInput.value);
+      if (!isNaN(val)) applyAmmo(val);
+    });
+    rpmInput.addEventListener("input", updateInfoBox);
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const initAmmo = parseInt(ammoInput.value);
+      if (!isNaN(initAmmo)) applyAmmo(initAmmo);
+      renderPresets();
+    });
+  </script>
+</body>
+</html>

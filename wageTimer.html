@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wage Watch • 실시간 시급 계산기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap');
+        
+        body { font-family: 'Inter', system_ui, sans-serif; }
+        .title-font { font-family: 'Space Grotesk', sans-serif; }
+        .money { font-variant-numeric: tabular-nums; transition: all 0.4s cubic-bezier(0.4, 0.0, 0.2, 1); }
+        .clock { font-family: 'Space Grotesk', sans-serif; letter-spacing: -3px; }
+
+        .scroll-picker { scrollbar-width: none; }
+        .scroll-picker::-webkit-scrollbar { display: none; }
+        
+        .time-item {
+            transition: all 0.2s ease;
+        }
+        .time-item.active {
+            background-color: #10b981;
+            color: white;
+            font-weight: 600;
+            transform: scale(1.08);
+        }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen pb-12">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8">
+        
+        <div class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-x-4">
+                <div class="w-11 h-11 sm:w-12 sm:h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">💰</div>
+                <div>
+                    <h1 class="title-font text-4xl sm:text-5xl font-semibold tracking-tighter">Wage Watch</h1>
+                    <p class="text-emerald-400 text-base sm:text-lg">나만의 근무 시간 • 실시간 수입 계산</p>
+                </div>
+            </div>
+            <div class="text-xs sm:text-sm bg-zinc-900 px-4 py-2 rounded-3xl border border-zinc-800 flex items-center gap-x-2 flex-shrink-0">
+                <div class="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse"></div>
+                <span class="font-medium text-emerald-400">실시간 업데이트</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- 설정 패널 -->
+            <div class="lg:col-span-5 bg-zinc-900 rounded-3xl p-6 sm:p-8 border border-zinc-800">
+                <h2 class="text-xl font-semibold mb-6 flex items-center gap-x-2">⚙️ 근무 설정</h2>
+
+                <div class="space-y-8">
+                    <!-- 시급 -->
+                    <div>
+                        <label class="block text-zinc-400 text-sm mb-2">시급 (원)</label>
+                        <div class="relative">
+                            <input id="hourlyInput" type="number" value="10320" step="100" min="0"
+                                   class="w-full bg-zinc-950 border border-zinc-700 focus:border-emerald-500 rounded-2xl px-6 py-5 text-4xl font-semibold outline-none money">
+                            <div class="absolute right-6 top-1/2 -translate-y-1/2 text-emerald-400 font-medium text-2xl">원</div>
+                        </div>
+                    </div>
+
+                    <!-- 근무 시간 -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-zinc-400 text-sm mb-2">근무 시작</label>
+                            <button onclick="openTimePicker('start')" id="startTimeBtn"
+                                    class="w-full bg-zinc-950 border border-zinc-700 hover:border-emerald-500 rounded-2xl px-5 py-4 text-lg font-semibold text-left transition-colors">
+                                09:00
+                            </button>
+                        </div>
+                        <div>
+                            <label class="block text-zinc-400 text-sm mb-2">근무 종료</label>
+                            <button onclick="openTimePicker('end')" id="endTimeBtn"
+                                    class="w-full bg-zinc-950 border border-zinc-700 hover:border-emerald-500 rounded-2xl px-5 py-4 text-lg font-semibold text-left transition-colors">
+                                18:00
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 점심시간 -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-zinc-400 text-sm mb-2">점심 시작</label>
+                            <button onclick="openTimePicker('lunchStart')" id="lunchStartBtn"
+                                    class="w-full bg-zinc-950 border border-zinc-700 hover:border-emerald-500 rounded-2xl px-5 py-4 text-lg text-left font-medium transition-colors">
+                                11:30
+                            </button>
+                        </div>
+                        <div>
+                            <label class="block text-zinc-400 text-sm mb-2">점심 종료</label>
+                            <button onclick="openTimePicker('lunchEnd')" id="lunchEndBtn"
+                                    class="w-full bg-zinc-950 border border-zinc-700 hover:border-emerald-500 rounded-2xl px-5 py-4 text-lg text-left font-medium transition-colors">
+                                12:30
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-10 pt-8 border-t border-zinc-700">
+                    <div class="flex justify-between items-end">
+                        <div>
+                            <p class="text-zinc-400 text-sm">하루 풀타임 수입</p>
+                            <p id="fullDayEarned" class="text-2xl font-semibold money text-emerald-400">82,560 원</p>
+                        </div>
+                        <div id="workHoursDisplay" class="text-right text-xs text-zinc-400">
+                            8.0시간 근무 (점심시간 1.0시간 차감)
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 메인 표시 영역 -->
+            <div class="lg:col-span-7 bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <p class="text-zinc-400 text-sm">현재 시간</p>
+                        <div id="currentTime" class="clock text-6xl sm:text-7xl font-semibold text-white tabular-nums tracking-tighter">09:41:22</div>
+                        <p id="currentDate" class="text-zinc-500 mt-1 text-sm"></p>
+                    </div>
+                    <div id="workStatus" class="flex-shrink-0">
+                        <div class="inline-flex items-center px-5 py-2 bg-emerald-400/10 text-emerald-400 rounded-3xl text-sm font-medium whitespace-nowrap">
+                            <span id="statusEmoji">🟢</span>
+                            <span id="statusLabel" class="ml-2">근무 중</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-auto pt-8">
+                    <div class="flex items-baseline justify-between mb-3">
+                        <p class="text-zinc-400">오늘 벌은 돈</p>
+                        <div id="elapsedTime" class="font-mono text-emerald-400 flex items-center gap-x-2 text-sm">
+                            <span class="text-3xl tabular-nums">00:00:00</span>
+                            <span class="text-xs bg-emerald-400/10 px-3 py-1 rounded-2xl whitespace-nowrap">업무 경과 시간</span>
+                        </div>
+                    </div>
+                    
+                    <div id="earnedAmount" class="money text-[3.5rem] sm:text-[4.5rem] leading-none font-semibold tracking-[-3px] text-emerald-400">
+                        0 원
+                    </div>
+
+                    <div class="mt-10">
+                        <div class="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+                            <span id="startTimeLabel">09:00</span>
+                            <span id="progressPercent" class="text-emerald-400">0%</span>
+                            <span id="endTimeLabel">18:00</span>
+                        </div>
+                        <div class="h-3 bg-zinc-800 rounded-full overflow-hidden">
+                            <div id="progressBar" class="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full transition-all duration-700" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-zinc-500 mt-2">
+                            <span>시작</span>
+                            <span id="timeLeft">남은 시간 • 계산 중...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 커스텀 시간 선택 모달 -->
+    <div id="timePickerModal" class="hidden fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50">
+        <div class="bg-zinc-900 w-full max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden">
+            <div class="p-6 border-b border-zinc-700 flex justify-between items-center">
+                <h3 id="modalTitle" class="text-xl font-semibold">시간 선택</h3>
+                <button onclick="closeTimePicker()" class="text-3xl text-zinc-400 hover:text-white">×</button>
+            </div>
+
+            <div class="p-8 flex gap-8 justify-center">
+                <div class="text-center">
+                    <p class="text-zinc-400 text-sm mb-3">시간</p>
+                    <div id="hourPicker" class="scroll-picker h-60 overflow-y-auto text-4xl font-semibold space-y-2 text-center"></div>
+                </div>
+                <div class="text-center">
+                    <p class="text-zinc-400 text-sm mb-3">분</p>
+                    <div id="minutePicker" class="scroll-picker h-60 overflow-y-auto text-4xl font-semibold space-y-2 text-center"></div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-zinc-700 flex gap-3">
+                <button onclick="closeTimePicker()" class="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 rounded-2xl font-medium">취소</button>
+                <button onclick="confirmTimeSelection()" class="flex-1 py-4 bg-emerald-500 hover:bg-emerald-600 rounded-2xl font-semibold">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let hourlyWage = 10320;
+        let startHour = 9, startMinute = 0;
+        let endHour = 18, endMinute = 0;
+        let lunchStartHour = 11, lunchStartMinute = 30;
+        let lunchEndHour = 12, lunchEndMinute = 30;
+
+        let currentField = null;
+        let selectedHour = 9;
+        let selectedMinute = 30;
+
+        // ==================== 시간 피커 ====================
+        function openTimePicker(field) {
+            currentField = field;
+
+            if (field === 'start') {
+                selectedHour = startHour; selectedMinute = startMinute;
+                document.getElementById('modalTitle').textContent = '근무 시작 시간';
+            } else if (field === 'end') {
+                selectedHour = endHour; selectedMinute = endMinute;
+                document.getElementById('modalTitle').textContent = '근무 종료 시간';
+            } else if (field === 'lunchStart') {
+                selectedHour = lunchStartHour; selectedMinute = lunchStartMinute;
+                document.getElementById('modalTitle').textContent = '점심 시작 시간';
+            } else if (field === 'lunchEnd') {
+                selectedHour = lunchEndHour; selectedMinute = lunchEndMinute;
+                document.getElementById('modalTitle').textContent = '점심 종료 시간';
+            }
+
+            renderHourPicker();
+            renderMinutePicker();
+            document.getElementById('timePickerModal').classList.remove('hidden');
+            document.getElementById('timePickerModal').classList.add('flex');
+        }
+
+        function renderHourPicker() {
+            const container = document.getElementById('hourPicker');
+            container.innerHTML = '';
+            for (let h = 0; h <= 23; h++) {
+                const div = document.createElement('div');
+                div.className = `time-item py-3 cursor-pointer rounded-xl ${h === selectedHour ? 'active' : 'hover:bg-zinc-800'}`;
+                div.textContent = h.toString().padStart(2, '0');
+                div.onclick = () => { selectedHour = h; renderHourPicker(); };
+                container.appendChild(div);
+            }
+            setTimeout(() => {
+                container.scrollTop = Math.max(0, (selectedHour + 4) * 47.73);  
+            }, 30); // 렌더링이 완료된 후에 scrollTop 설정
+        }
+
+        function renderMinutePicker() {
+            const container = document.getElementById('minutePicker');
+            container.innerHTML = '';
+            const minutes = [0, 10, 20, 30, 40, 50];
+            minutes.forEach(m => {
+                const div = document.createElement('div');
+                div.className = `time-item py-3 cursor-pointer rounded-xl ${m === selectedMinute ? 'active' : 'hover:bg-zinc-800'}`;
+                div.textContent = m.toString().padStart(2, '0');
+                div.onclick = () => { selectedMinute = m; renderMinutePicker(); };
+                container.appendChild(div);
+            });
+            setTimeout(() => {
+                container.scrollTop = Math.max(0, (minutes.indexOf(selectedMinute)) * 96);
+            }, 30);
+        }
+
+        function closeTimePicker() {
+            const modal = document.getElementById('timePickerModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // ==================== 시간 저장 및 불러오기 ====================
+        function saveAllSettings() {
+            hourlyWage = parseInt(document.getElementById('hourlyInput').value) || 10320;
+            
+            localStorage.setItem('wageWatch_hourly', hourlyWage);
+            localStorage.setItem('wageWatch_startHour', startHour);
+            localStorage.setItem('wageWatch_startMinute', startMinute);
+            localStorage.setItem('wageWatch_endHour', endHour);
+            localStorage.setItem('wageWatch_endMinute', endMinute);
+            localStorage.setItem('wageWatch_lunchStartHour', lunchStartHour);
+            localStorage.setItem('wageWatch_lunchStartMinute', lunchStartMinute);
+            localStorage.setItem('wageWatch_lunchEndHour', lunchEndHour);
+            localStorage.setItem('wageWatch_lunchEndMinute', lunchEndMinute);
+        }
+
+        function loadSettings() {
+            // 시급
+            const savedWage = localStorage.getItem('wageWatch_hourly');
+            if (savedWage) {
+                hourlyWage = parseInt(savedWage);
+                document.getElementById('hourlyInput').value = hourlyWage;
+            }
+
+            // 근무 시작
+            const sH = localStorage.getItem('wageWatch_startHour');
+            const sM = localStorage.getItem('wageWatch_startMinute');
+            if (sH) startHour = parseInt(sH);
+            if (sM) startMinute = parseInt(sM);
+
+            // 근무 종료
+            const eH = localStorage.getItem('wageWatch_endHour');
+            const eM = localStorage.getItem('wageWatch_endMinute');
+            if (eH) endHour = parseInt(eH);
+            if (eM) endMinute = parseInt(eM);
+
+            // 점심 시작
+            const lsH = localStorage.getItem('wageWatch_lunchStartHour');
+            const lsM = localStorage.getItem('wageWatch_lunchStartMinute');
+            if (lsH) lunchStartHour = parseInt(lsH);
+            if (lsM) lunchStartMinute = parseInt(lsM);
+
+            // 점심 종료
+            const leH = localStorage.getItem('wageWatch_lunchEndHour');
+            const leM = localStorage.getItem('wageWatch_lunchEndMinute');
+            if (leH) lunchEndHour = parseInt(leH);
+            if (leM) lunchEndMinute = parseInt(leM);
+
+            // 버튼 UI 업데이트
+            document.getElementById('startTimeBtn').textContent = `${startHour.toString().padStart(2,'0')}:${startMinute.toString().padStart(2,'0')}`;
+            document.getElementById('endTimeBtn').textContent = `${endHour.toString().padStart(2,'0')}:${endMinute.toString().padStart(2,'0')}`;
+            document.getElementById('lunchStartBtn').textContent = `${lunchStartHour.toString().padStart(2,'0')}:${lunchStartMinute.toString().padStart(2,'0')}`;
+            document.getElementById('lunchEndBtn').textContent = `${lunchEndHour.toString().padStart(2,'0')}:${lunchEndMinute.toString().padStart(2,'0')}`;
+        }
+
+        function confirmTimeSelection() {
+            if (!currentField) return;
+
+            // 시간 유효성 자동 조정 (기존 로직 유지)
+            if (currentField === 'start') {
+                startHour = selectedHour; startMinute = selectedMinute;
+                if (endHour < startHour || (endHour === startHour && endMinute <= startMinute)) {
+                    endHour = Math.min(23, startHour + 8);
+                    endMinute = startMinute;
+                }
+            } else if (currentField === 'end') {
+                endHour = selectedHour; endMinute = selectedMinute;
+                if (startHour > endHour || (startHour === endHour && startMinute >= endMinute)) {
+                    startHour = Math.max(0, endHour - 8);
+                    startMinute = endMinute;
+                }
+            } else if (currentField === 'lunchStart') {
+                lunchStartHour = selectedHour; lunchStartMinute = selectedMinute;
+                if (lunchEndHour < lunchStartHour || (lunchEndHour === lunchStartHour && lunchEndMinute <= lunchStartMinute)) {
+                    lunchEndHour = lunchStartHour;
+                    lunchEndMinute = (lunchStartMinute + 60) % 60;
+                    if (lunchEndMinute < lunchStartMinute) lunchEndHour++;
+                }
+            } else if (currentField === 'lunchEnd') {
+                lunchEndHour = selectedHour; lunchEndMinute = selectedMinute;
+                if (lunchStartHour > lunchEndHour || (lunchStartHour === lunchEndHour && lunchStartMinute >= lunchEndMinute)) {
+                    lunchStartHour = lunchEndHour;
+                    lunchStartMinute = Math.max(0, lunchEndMinute - 60);
+                }
+            }
+
+            // UI 업데이트
+            document.getElementById('startTimeBtn').textContent = `${startHour.toString().padStart(2,'0')}:${startMinute.toString().padStart(2,'0')}`;
+            document.getElementById('endTimeBtn').textContent = `${endHour.toString().padStart(2,'0')}:${endMinute.toString().padStart(2,'0')}`;
+            document.getElementById('lunchStartBtn').textContent = `${lunchStartHour.toString().padStart(2,'0')}:${lunchStartMinute.toString().padStart(2,'0')}`;
+            document.getElementById('lunchEndBtn').textContent = `${lunchEndHour.toString().padStart(2,'0')}:${lunchEndMinute.toString().padStart(2,'0')}`;
+
+            document.getElementById('startTimeLabel').textContent = document.getElementById('startTimeBtn').textContent;
+            document.getElementById('endTimeLabel').textContent = document.getElementById('endTimeBtn').textContent;
+
+            saveAllSettings();        // ← localStorage 저장
+            updateFullDayEarned();
+            calculateWage();
+            closeTimePicker();
+        }
+
+        function saveSettings() {
+            saveAllSettings();
+            updateFullDayEarned();
+            calculateWage();
+        }
+
+        function updateFullDayEarned() {
+            const lunchDuration = (lunchEndHour + lunchEndMinute/60) - (lunchStartHour + lunchStartMinute/60);
+            const workHours = (endHour + endMinute/60) - (startHour + startMinute/60) - lunchDuration;
+            const fullEarned = Math.floor(hourlyWage * Math.max(0, workHours));
+            
+            document.getElementById('fullDayEarned').textContent = fullEarned.toLocaleString('ko-KR') + ' 원';
+            document.getElementById('workHoursDisplay').textContent = 
+                `${workHours.toFixed(1)}시간 근무 (점심시간 ${lunchDuration.toFixed(1)}시간 차감)`;
+        }
+
+        function updateCurrentTime() {
+            const now = new Date();
+            document.getElementById('currentTime').textContent = now.toLocaleTimeString('ko-KR', { 
+                hour: '2-digit', minute: '2-digit', second: '2-digit' 
+            });
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('ko-KR', { 
+                year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' 
+            });
+        }
+
+        function calculateWage() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const startTime = new Date(today); startTime.setHours(startHour, startMinute, 0, 0);
+            const endTime = new Date(today); endTime.setHours(endHour, endMinute, 0, 0);
+            const lunchStartTime = new Date(today); lunchStartTime.setHours(lunchStartHour, lunchStartMinute, 0, 0);
+            const lunchEndTime = new Date(today); lunchEndTime.setHours(lunchEndHour, lunchEndMinute, 0, 0);
+
+            let elapsedMs = 0, progress = 0, earned = 0;
+            let statusEmoji = '⏳', statusLabel = '근무 전', timeLeftText = '계산 중...';
+
+            const isDuringLunch = now >= lunchStartTime && now < lunchEndTime;
+
+            if (now < startTime) {
+                statusEmoji = '⏳'; statusLabel = '근무 전';
+                timeLeftText = `시작까지 ${Math.floor((startTime - now)/60000)}분`;
+                earned = 0;
+            } else if (now > endTime) {
+                statusEmoji = '🔴'; statusLabel = '근무 종료';
+                elapsedMs = endTime - startTime;
+                progress = 100;
+                timeLeftText = '근무 완료';
+                const lunchDur = (lunchEndTime - lunchStartTime) / 3600000;
+                earned = Math.floor(hourlyWage * ((endTime - startTime) / 3600000 - lunchDur));
+            } else if (isDuringLunch) {
+                statusEmoji = '🟠'; statusLabel = '점심시간';
+                elapsedMs = lunchStartTime - startTime;
+                progress = Math.min(((now - startTime) / (endTime - startTime)) * 100, 100);
+                timeLeftText = `점심시간 • ${Math.ceil((lunchEndTime - now)/60000)}분 남음`;
+                earned = Math.floor(hourlyWage * (lunchStartTime - startTime) / 3600000);
+            } else {
+                statusEmoji = '🟢'; statusLabel = '근무 중';
+                elapsedMs = now - startTime;
+                progress = Math.min(((now - startTime) / (endTime - startTime)) * 100, 100);
+
+                const remainMs = endTime - now;
+                timeLeftText = `남은 시간 • ${Math.floor(remainMs / 3600000)}시간 ${Math.floor((remainMs % 3600000) / 60000)}분`;
+
+                const totalHoursSoFar = elapsedMs / 3600000;
+                const lunchDur = (lunchEndTime - lunchStartTime) / 3600000;
+                earned = Math.floor(hourlyWage * (now < lunchStartTime ? totalHoursSoFar : totalHoursSoFar - lunchDur));
+            }
+
+            const totalSec = Math.floor(elapsedMs / 1000);
+            const h = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+            const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+            const s = String(totalSec % 60).padStart(2, '0');
+
+            document.getElementById('earnedAmount').textContent = earned.toLocaleString('ko-KR') + ' 원';
+            document.getElementById('elapsedTime').innerHTML = `<span class="text-3xl tabular-nums">${h}:${m}:${s}</span><span class="text-xs bg-emerald-400/10 px-3 py-1 rounded-2xl whitespace-nowrap">업무 경과 시간</span>`;
+            
+            document.getElementById('workStatus').innerHTML = `
+                <div class="inline-flex items-center px-5 py-2 bg-emerald-400/10 text-emerald-400 rounded-3xl text-sm font-medium whitespace-nowrap">
+                    <span>${statusEmoji}</span><span class="ml-2">${statusLabel}</span>
+                </div>`;
+            
+            document.getElementById('progressBar').style.width = `${progress}%`;
+            document.getElementById('progressPercent').textContent = `${Math.floor(progress)}%`;
+            document.getElementById('timeLeft').textContent = timeLeftText;
+            document.getElementById('startTimeLabel').textContent = document.getElementById('startTimeBtn').textContent;
+            document.getElementById('endTimeLabel').textContent = document.getElementById('endTimeBtn').textContent;
+        }
+
+        function updateAll() {
+            updateCurrentTime();
+            calculateWage();
+        }
+
+        function init() {
+            loadSettings();
+            updateFullDayEarned();
+            document.getElementById('hourlyInput').addEventListener('input', saveSettings);
+
+            updateAll();
+            setInterval(updateAll, 1000);
+
+            console.log('%c✅ Wage Watch 시작 - localStorage 저장 기능 정상 적용', 'color:#00ff9d; font-weight:bold');
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

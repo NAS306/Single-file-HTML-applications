@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>PS2 Alerts with End Time</title>
+</head>
+<body>
+  <h1>PlanetSide2 얼럿 (종료 예정 & 남은 시간)</h1>
+  <div id="alerts-container"></div>
+
+  <script>
+    const API_KEY = "s:example";  // 필요시 교체
+    const ZONES = { 2:"Indar",4:"Hossin",6:"Amerish",8:"Esamir",96:"Oshur" };
+
+    let metaDefs = {};
+    let worldDefs = {};
+    let ongoingAlerts = [];
+
+    async function loadMetaDefs() {
+      const url = `https://census.daybreakgames.com/${API_KEY}/get/ps2:v2/metagame_event?c:limit=500`;
+      const res = await fetch(url);
+      const data = await res.json();
+      (data.metagame_event_list || []).forEach(ev => {
+        metaDefs[ev.metagame_event_id] = ev;
+      });
+    }
+
+    async function loadWorldDefs() {
+      const url = `https://census.daybreakgames.com/${API_KEY}/get/ps2:v2/world?c:limit=50`;
+      const res = await fetch(url);
+      const data = await res.json();
+      (data.world_list || []).forEach(w => {
+        worldDefs[w.world_id] = w.name.en;
+      });
+    }
+
+    function fmtRemain(sec) {
+      if (sec < 0) return "종료됨";
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}분 ${s}초`;
+    }
+
+    async function fetchAlerts() {
+      const url = `https://census.daybreakgames.com/${API_KEY}/get/ps2:v2/world_event/?type=METAGAME&c:limit=200&c:sort=timestamp:1`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const list = data.world_event_list || [];
+
+      // instance_id별 최신 이벤트만 유지
+      const latest = {};
+      for (const ev of list) {
+        if (!latest[ev.instance_id] || Number(ev.timestamp) > Number(latest[ev.instance_id].timestamp)) {
+          latest[ev.instance_id] = ev;
+        }
+      }
+
+      // 진행 중(= 가장 최신 상태가 started)
+      const ongoing = Object.values(latest).filter(ev => ev.metagame_event_state === "135");
+      ongoingAlerts = ongoing.map(ev => {
+        const zone = ZONES[ev.zone_id] || `zone_id=${ev.zone_id}`;
+        const worldName = worldDefs[ev.world_id] || `World ${ev.world_id}`;
+        const def = metaDefs[ev.metagame_event_id];
+        const durSec = def && def.duration_minutes ? Number(def.duration_minutes) * 60 : 90 * 60;
+        const start = Number(ev.timestamp);
+        const end = start + durSec;
+        return {
+          worldId: ev.world_id,
+          worldName,
+          zone,
+          stateName: ev.metagame_event_state_name,
+          start,
+          end,
+          endKST: new Date(end * 1000).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }),
+          eventId: ev.metagame_event_id
+        };
+      });
+    }
+
+    function renderAlerts() {
+      const container = document.getElementById("alerts-container");
+      container.innerHTML = "";
+      const now = Math.floor(Date.now()/1000);
+
+      if (ongoingAlerts.length === 0) {
+        container.innerHTML = `<div class="no-alerts">현재 진행 중인 얼럿이 없습니다.</div>`;
+      } else {
+        ongoingAlerts.forEach(alert => {
+          const remain = alert.end - now;
+          const card = document.createElement("div");
+          card.className = "alert-card";
+          card.innerHTML = `
+            <div class="alert-title"><span class="alert-label">서버:</span> ${alert.worldName}</div>
+            <div class="alert-zone"><span class="alert-label">대륙:</span> ${alert.zone}</div>
+            <div class="alert-row"><span class="alert-label">상태:</span> ${alert.stateName}</div>
+            <div class="alert-row"><span class="alert-label">시작:</span> ${new Date(alert.start*1000).toLocaleString("ko-KR",{timeZone:"Asia/Seoul"})}</div>
+            <div class="alert-row"><span class="alert-label">종료 예정:</span> ${alert.endKST}</div>
+            <div class="alert-remain">남은 시간: ${fmtRemain(remain)}</div>
+          `;
+          container.appendChild(card);
+        });
+      }
+    }
+
+    (async () => {
+      await loadMetaDefs();
+      await loadWorldDefs();
+      await fetchAlerts();
+      renderAlerts();
+      setInterval(renderAlerts, 1000); // 1초마다 화면만 갱신
+      setInterval(async () => {
+        await fetchAlerts();
+        renderAlerts();
+      }, 60000); // 1분마다 데이터 갱신
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>무한 지뢰찾기 ∞</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        :root {
+            --cell-size: 40px;
+        }
+        
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .status-bar {
+            background: linear-gradient(#c0c0c0, #808080);
+            border-bottom: 4px solid #dfdfdf;
+            box-shadow: inset 0 2px 0 #fff, inset 0 -2px 0 #707070;
+        }
+        
+        #grid {
+            display: grid;
+            gap: 0;
+            background: #707070;
+            padding: 0;
+            box-shadow: inset 4px 4px 0 #fff,
+                        inset -4px -4px 0 #707070;
+        }
+        
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Press Start 2P', system-ui;
+            font-size: calc(var(--cell-size) * 0.65);
+            font-weight: 700;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.08s ease;
+        }
+        
+        .unrevealed {
+            background: #c0c0c0;
+            border-top: 4px solid #f0f0f0;
+            border-left: 4px solid #f0f0f0;
+            border-bottom: 4px solid #707070;
+            border-right: 4px solid #707070;
+        }
+        
+        .revealed {
+            background: #c0c0c0;
+            border: 2px solid #707070;
+        }
+        
+        /* 강화된 폭발 애니메이션 */
+        @keyframes explode {
+            0%   { transform: scale(1) rotate(0deg); }
+            25%  { transform: scale(3) rotate(25deg); }   /* 300% 크기 */
+            50%  { transform: scale(2.2) rotate(-20deg); }
+            75%  { transform: scale(1.4) rotate(15deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        
+        .exploding {
+            animation: explode 0.55s ease-in-out forwards;
+            color: #ffff00 !important;
+        }
+        
+        .num-1 { color: #0000ff; }
+        .num-2 { color: #008000; }
+        .num-3 { color: #ff0000; }
+        .num-4 { color: #000080; }
+        .num-5 { color: #800000; }
+        .num-6 { color: #008080; }
+        .num-7 { color: #000000; }
+        .num-8 { color: #808080; }
+        
+        .game-over .cell {
+            pointer-events: none;
+        }
+        
+        .diff-btn {
+            transition: all 0.1s ease;
+        }
+        .diff-btn.active {
+            background: #808080 !important;
+            color: white !important;
+            border-top: 4px solid #707070 !important;
+            border-left: 4px solid #707070 !important;
+            border-bottom: 4px solid #f0f0f0 !important;
+            border-right: 4px solid #f0f0f0 !important;
+        }
+        
+        .status-flex {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .status-flex::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-[#202020] text-white font-mono flex flex-col h-screen overflow-hidden">
+    <!-- Status Bar -->
+    <div class="status-bar px-3 py-2 flex items-center gap-3 border-b-4 border-[#dfdfdf] flex-shrink-0 status-flex">
+        <!-- 타이틀 -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+            <div class="w-8 h-8 bg-red-500 flex items-center justify-center text-xl border-2 border-white">💣</div>
+            <div class="leading-none">
+                <div class="text-[19px] tracking-widest font-bold text-black" style="font-family: 'Press Start 2P', system-ui;">INFINITE</div>
+                <div class="text-[19px] tracking-widest font-bold text-red-600 -mt-1" style="font-family: 'Press Start 2P', system-ui;">MINESWEEPER</div>
+            </div>
+        </div>
+        
+        <!-- 타이머 -->
+        <div class="flex-1 flex justify-center flex-shrink-0">
+            <div class="bg-black text-[#ff0000] px-5 py-1 text-3xl font-bold tabular-nums border-4 border-[#808080] shadow-inner" id="timer">
+                000
+            </div>
+        </div>
+        
+        <!-- 난이도 -->
+        <div class="flex bg-[#c0c0c0] border-4 border-t-[#f0f0f0] border-l-[#f0f0f0] border-b-[#707070] border-r-[#707070] p-1 gap-1 flex-shrink-0">
+            <button onclick="setDifficulty('easy')" id="diff-easy" class="diff-btn px-4 py-1 text-xs font-bold border-4 border-t-[#f0f0f0] border-l-[#f0f0f0] border-b-[#707070] border-r-[#707070]">EASY</button>
+            <button onclick="setDifficulty('normal')" id="diff-normal" class="diff-btn active px-4 py-1 text-xs font-bold border-4 border-t-[#f0f0f0] border-l-[#f0f0f0] border-b-[#707070] border-r-[#707070]">NORMAL</button>
+            <button onclick="setDifficulty('hard')" id="diff-hard" class="diff-btn px-4 py-1 text-xs font-bold border-4 border-t-[#f0f0f0] border-l-[#f0f0f0] border-b-[#707070] border-r-[#707070]">HARD</button>
+        </div>
+        
+        <!-- 시드 표시 (읽기 전용) -->
+        <div class="flex items-center gap-3 flex-shrink-0">
+            <div class="flex flex-col items-end">
+                <span class="text-xs text-black font-bold">SEED</span>
+                <div id="seed-display" class="font-mono text-sm bg-white text-black px-3 py-px border-4 border-t-[#f0f0f0] border-l-[#f0f0f0] border-b-[#707070] border-r-[#707070]">
+                    GENERATING...
+                </div>
+            </div>
+            <button onclick="newRandomSeed()"
+                    class="px-5 py-2 bg-[#c0c0c0] text-black text-sm font-bold border-4 border-t-[#f0f0f0] border-l-[#f0f0f0] border-b-[#707070] border-r-[#707070] active:border-t-[#707070] active:border-l-[#707070] active:border-b-[#f0f0f0] active:border-r-[#f0f0f0] flex items-center gap-2 whitespace-nowrap">
+                <span class="text-xl">♻️</span>
+                <span>NEW</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- 게임 영역 -->
+    <div id="game-container" class="flex-1 overflow-y-auto bg-[#505050] relative">
+        <div id="grid" class="mx-auto"></div>
+    </div>
+    
+    <script>
+        // ================ 전역 변수 ================
+        let seed = ""
+        let cellSize = 40
+        let cols = 0
+        let maxRow = 0
+        let difficulty = "normal"
+        let densityMap = { easy: 10, normal: 14, hard: 22 }
+        
+        let revealed = new Set()
+        let flagged = new Set()
+        let removedMines = new Set()
+        let gameStarted = false
+        let gameOver = false
+        let firstClickDone = false
+        let timerSeconds = 0
+        let timerInterval = null
+        
+        // ================ 해시 함수 ================
+        function generateRandomSeed() {
+            return Math.random().toString(36).substring(2, 14).toUpperCase();
+        }
+        
+        function getPseudoRandom(row, col, seedStr) {
+            let h = 0
+            const key = `${seedStr}|${row}|${col}`
+            for (let i = 0; i < key.length; i++) {
+                h = Math.imul(h, 31) + key.charCodeAt(i) | 0
+            }
+            h = (h ^ (h >>> 15)) * 0x85ebca6b | 0
+            h = (h ^ (h >>> 13)) * 0xc2b2ae35 | 0
+            h = h ^ (h >>> 16)
+            return Math.abs(h) % 1000
+        }
+        
+        function baseIsMine(row, col) {
+            if (row < 0 || col < 0) return false
+            const h = getPseudoRandom(row, col, seed)
+            return h < densityMap[difficulty] * 10
+        }
+        
+        function isMine(row, col) {
+            const key = `${row}-${col}`
+            return !removedMines.has(key) && baseIsMine(row, col)
+        }
+        
+        function getNumber(row, col) {
+            if (row < 0 || col < 0 || col >= cols) return 0
+            let count = 0
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue
+                    if (isMine(row + dr, col + dc)) count++
+                }
+            }
+            return count
+        }
+        
+        function getKey(row, col) { return `${row}-${col}` }
+        
+        // ================ 셀 ================
+        function createCell(row, col) {
+            const cell = document.createElement('div')
+            cell.className = `cell unrevealed`
+            cell.style.setProperty('--cell-size', `${cellSize}px`)
+            cell.dataset.row = row
+            cell.dataset.col = col
+            
+            cell.addEventListener('click', () => !gameOver && handleOpen(row, col))
+            cell.addEventListener('contextmenu', e => { e.preventDefault(); !gameOver && handleFlag(row, col) })
+            
+            let pressTimer, isLong = false
+            cell.addEventListener('touchstart', () => {
+                if (gameOver) return
+                isLong = false
+                pressTimer = setTimeout(() => { isLong = true; handleFlag(row, col) }, 420)
+            })
+            cell.addEventListener('touchend', () => {
+                clearTimeout(pressTimer)
+                if (!isLong && !gameOver) handleOpen(row, col)
+            })
+            cell.addEventListener('touchcancel', () => clearTimeout(pressTimer))
+            
+            updateCellVisual(cell)
+            return cell
+        }
+        
+        function updateCellVisual(cell) {
+            const row = +cell.dataset.row
+            const col = +cell.dataset.col
+            const key = getKey(row, col)
+            const isRev = revealed.has(key)
+            const isFlg = flagged.has(key)
+            
+            cell.className = `cell`
+            cell.style.setProperty('--cell-size', `${cellSize}px`)
+            
+            if (isRev) {
+                cell.classList.add('revealed')
+                if (isMine(row, col)) {
+                    cell.innerHTML = '💣'
+                    cell.classList.add('text-red-600')
+                } else {
+                    const num = getNumber(row, col)
+                    cell.innerHTML = num > 0 ? num : ''
+                    if (num > 0) cell.classList.add(`num-${num}`)
+                }
+            } else if (isFlg) {
+                cell.classList.add('unrevealed')
+                cell.innerHTML = '🚩'
+                cell.classList.add('text-amber-500')
+            } else {
+                cell.classList.add('unrevealed')
+                cell.innerHTML = ''
+            }
+        }
+        
+        // ================ 게임 로직 ================
+        function handleOpen(row, col) {
+            const key = getKey(row, col)
+            if (revealed.has(key) || flagged.has(key) || gameOver) return
+            
+            // 첫 클릭 시 무작위 해시 생성
+            if (!firstClickDone) {
+                if (!seed) seed = generateRandomSeed()
+                document.getElementById('seed-display').textContent = seed
+                
+                firstClickDone = true
+                gameStarted = true
+                startTimer()
+                
+                // 첫 클릭한 셀이 지뢰면 안전하게 제거
+                if (baseIsMine(row, col)) {
+                    removedMines.add(key)
+                }
+            }
+            
+            if (isMine(row, col)) {
+                triggerChainExplosion(row, col)
+                return
+            }
+            
+            revealed.add(key)
+            updateCellVisual(getCellElement(row, col))
+            
+            if (getNumber(row, col) === 0) floodFill(row, col)
+        }
+        
+        function handleFlag(row, col) {
+            const key = getKey(row, col)
+            if (revealed.has(key) || gameOver) return
+            flagged.has(key) ? flagged.delete(key) : flagged.add(key)
+            updateCellVisual(getCellElement(row, col))
+        }
+        
+        function ensureRowsUpTo(targetRow) {
+            if (targetRow < maxRow) return
+            const grid = document.getElementById('grid')
+            const start = maxRow
+            maxRow = targetRow + 10
+            for (let r = start; r < maxRow; r++) {
+                for (let c = 0; c < cols; c++) {
+                    grid.appendChild(createCell(r, c))
+                }
+            }
+        }
+        
+        function floodFill(startRow, startCol) {
+            const queue = [[startRow, startCol]]
+            while (queue.length) {
+                const [r, c] = queue.shift()
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue
+                        const nr = r + dr, nc = c + dc
+                        if (nr < 0 || nc < 0 || nc >= cols) continue
+                        
+                        ensureRowsUpTo(nr)
+                        
+                        const nkey = getKey(nr, nc)
+                        if (revealed.has(nkey) || flagged.has(nkey)) continue
+                        
+                        revealed.add(nkey)
+                        const el = getCellElement(nr, nc)
+                        if (el) updateCellVisual(el)
+                        
+                        if (getNumber(nr, nc) === 0) queue.push([nr, nc])
+                    }
+                }
+            }
+        }
+        
+        // ================ 강화된 폭발 효과 ================
+        function triggerChainExplosion(stepRow, stepCol) {
+            gameOver = true
+            document.getElementById('game-container').classList.add('game-over')
+            
+            const mines = []
+            for (let r = 0; r < maxRow; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (isMine(r, c)) {
+                        mines.push({r, c, dist: Math.hypot(r-stepRow, c-stepCol)})
+                    }
+                }
+            }
+            mines.sort((a,b) => a.dist - b.dist)
+            
+            let delay = 0
+            for (let i = 0; i < mines.length; i++) {
+                setTimeout(() => {
+                    if (!gameOver) return
+                    const m = mines[i]
+                    const cell = getCellElement(m.r, m.c)
+                    if (cell && !revealed.has(getKey(m.r, m.c))) {
+                        revealed.add(getKey(m.r, m.c))
+                        cell.innerHTML = '💥'
+                        cell.classList.add('exploding')
+                        
+                        // 애니메이션 후 원래 폭발 이모지 유지
+                        setTimeout(() => {
+                            if (cell) cell.classList.remove('exploding')
+                        }, 600)
+                    }
+                }, delay)
+                delay += 25
+            }
+        }
+        
+        function getCellElement(row, col) {
+            return document.querySelector(`#grid .cell[data-row="${row}"][data-col="${col}"]`)
+        }
+        
+        // ================ 그리드 재구성 ================
+        function rebuildGrid(resetState = true) {
+            const container = document.getElementById('game-container')
+            const grid = document.getElementById('grid')
+            
+            if (resetState) {
+                revealed.clear()
+                flagged.clear()
+                removedMines.clear()
+                firstClickDone = false
+                gameStarted = false
+                gameOver = false
+                timerSeconds = 0
+                seed = ""                     // 새 게임 시 해시 초기화
+                document.getElementById('seed-display').textContent = "GENERATING..."
+                document.getElementById('game-container').classList.remove('game-over')
+                stopTimer()
+            }
+            
+            cols = Math.max(8, Math.floor(container.clientWidth / cellSize))
+            
+            grid.innerHTML = ''
+            grid.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`
+            
+            const statusHeight = document.querySelector('.status-bar').offsetHeight
+            const availableHeight = window.innerHeight - statusHeight
+            const initialRows = Math.ceil(availableHeight / cellSize)
+            
+            maxRow = initialRows
+            
+            for (let r = 0; r < maxRow; r++) {
+                for (let c = 0; c < cols; c++) {
+                    grid.appendChild(createCell(r, c))
+                }
+            }
+        }
+        
+        // ================ 기타 ================
+        function startTimer() {
+            if (timerInterval) return
+            timerInterval = setInterval(() => {
+                timerSeconds++
+                document.getElementById('timer').textContent = String(timerSeconds).padStart(3, '0')
+            }, 1000)
+        }
+        
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval)
+            timerInterval = null
+        }
+        
+        function setDifficulty(newDiff) {
+            if (difficulty === newDiff) return
+            difficulty = newDiff
+            document.querySelectorAll('.diff-btn').forEach(b => 
+                b.classList.toggle('active', b.id === `diff-${newDiff}`)
+            )
+            rebuildGrid(true)
+        }
+        
+        function newRandomSeed() {
+            rebuildGrid(true)
+        }
+        
+        // ================ 초기화 ================
+        function init() {
+            rebuildGrid(true)
+            document.querySelectorAll('.diff-btn').forEach(b => 
+                b.classList.toggle('active', b.id === `diff-${difficulty}`)
+            )
+            
+            window.addEventListener('resize', () => {
+                clearTimeout(window.resizeTimer)
+                window.resizeTimer = setTimeout(() => rebuildGrid(true), 120)
+            })
+            
+            console.log('%c✅ 무한 지뢰찾기 - 폭발 효과 강화 & 첫 클릭 시 무작위 해시 생성 완료', 'color:#ff0000; font-family:monospace')
+        }
+        
+        window.onload = init
+    </script>
+</body>
+</html>

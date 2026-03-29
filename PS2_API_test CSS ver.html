@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>PS2 Alerts with End Time</title>
+  <style>
+    body {
+      background: #181c24;
+      color: #e0e6f0;
+      font-family: 'Segoe UI', 'Malgun Gothic', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    h1 {
+      text-align: center;
+      margin-top: 32px;
+      margin-bottom: 16px;
+      font-size: 2rem;
+      color: #7ecfff;
+      letter-spacing: 1px;
+    }
+    #alerts-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 24px;
+      margin: 0 auto;
+      max-width: 1200px;
+      padding: 16px;
+    }
+    .alert-card {
+      background: #23283a;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(30,40,60,0.15);
+      padding: 24px 20px 18px 20px;
+      min-width: 260px;
+      max-width: 340px;
+      flex: 1 1 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border: 2px solid #3a4a6b;
+      transition: border-color 0.2s;
+    }
+    .alert-card:hover {
+      border-color: #7ecfff;
+    }
+    .alert-title {
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #ffd36e;
+      margin-bottom: 4px;
+    }
+    .alert-zone {
+      font-size: 1rem;
+      color: #7ecfff;
+      margin-bottom: 2px;
+    }
+    .alert-label {
+      font-weight: bold;
+      color: #b8c6e0;
+      margin-right: 6px;
+    }
+    .alert-row {
+      margin-bottom: 2px;
+      font-size: 0.98rem;
+    }
+    .alert-remain {
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #ff7e7e;
+      margin-top: 8px;
+      letter-spacing: 1px;
+    }
+    .no-alerts {
+      text-align: center;
+      font-size: 1.2rem;
+      color: #b8c6e0;
+      margin-top: 40px;
+    }
+    @media (max-width: 700px) {
+      #alerts-container {
+        flex-direction: column;
+        gap: 16px;
+        padding: 8px;
+      }
+      .alert-card {
+        max-width: 98vw;
+        min-width: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>PlanetSide2 얼럿 (종료 예정 & 남은 시간)</h1>
+  <div id="alerts-container"></div>
+
+  <script>
+    const API_KEY = "s:example";  // 필요시 교체
+    const ZONES = { 2:"Indar",4:"Hossin",6:"Amerish",8:"Esamir",96:"Oshur" };
+
+    // worldDefs를 고정값으로 설정 (자주 바뀌지 않으므로)
+    const worldDefs = {
+      "1": "Osprey",
+      "10": "Wainwright",
+      "19": "Jaeger",
+      "40": "SolTech",
+      "24": "Apex",
+      "25": "Briggs"
+    };
+
+    let metaDefs = {};
+    let ongoingAlerts = [];
+
+    async function loadMetaDefs() {
+      const url = `https://census.daybreakgames.com/${API_KEY}/get/ps2:v2/metagame_event?c:limit=50`;
+      const res = await fetch(url);
+      const data = await res.json();
+      (data.metagame_event_list || []).forEach(ev => {
+        metaDefs[ev.metagame_event_id] = ev;
+      });
+    }
+
+    function fmtRemain(sec) {
+      if (sec < 0) return "종료됨";
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}분 ${s}초`;
+    }
+
+    async function fetchAlerts() {
+      const url = `https://census.daybreakgames.com/${API_KEY}/get/ps2:v2/world_event/?type=METAGAME&c:limit=30&c:sort=timestamp:1`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const list = data.world_event_list || [];
+
+      // instance_id별 최신 이벤트만 유지
+      const latest = {};
+      for (const ev of list) {
+        if (!latest[ev.instance_id] || Number(ev.timestamp) > Number(latest[ev.instance_id].timestamp)) {
+          latest[ev.instance_id] = ev;
+        }
+      }
+
+      // 진행 중(= 가장 최신 상태가 started)
+      const ongoing = Object.values(latest).filter(ev => ev.metagame_event_state === "135");
+      ongoingAlerts = ongoing.map(ev => {
+        const zone = ZONES[ev.zone_id] || `zone_id=${ev.zone_id}`;
+        const worldName = worldDefs[ev.world_id] || `World ${ev.world_id}`;
+        const def = metaDefs[ev.metagame_event_id];
+        const durSec = def && def.duration_minutes ? Number(def.duration_minutes) * 60 : 90 * 60;
+        const start = Number(ev.timestamp);
+        const end = start + durSec;
+        return {
+          worldId: ev.world_id,
+          worldName,
+          zone,
+          stateName: ev.metagame_event_state_name,
+          start,
+          end,
+          endKST: new Date(end * 1000).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }),
+          eventId: ev.metagame_event_id
+        };
+      });
+    }
+
+    function renderAlerts() {
+      const container = document.getElementById("alerts-container");
+      container.innerHTML = "";
+      const now = Math.floor(Date.now()/1000);
+
+      if (ongoingAlerts.length === 0) {
+        container.innerHTML = `<div class="no-alerts">현재 진행 중인 얼럿이 없습니다.</div>`;
+      } else {
+        ongoingAlerts.forEach(alert => {
+          const remain = alert.end - now;
+          const card = document.createElement("div");
+          card.className = "alert-card";
+          card.innerHTML = `
+            <div class="alert-title"><span class="alert-label">서버:</span> ${alert.worldName}</div>
+            <div class="alert-zone"><span class="alert-label">대륙:</span> ${alert.zone}</div>
+            <div class="alert-row"><span class="alert-label">상태:</span> ${alert.stateName}</div>
+            <div class="alert-row"><span class="alert-label">시작:</span> ${new Date(alert.start*1000).toLocaleString("ko-KR",{timeZone:"Asia/Seoul"})}</div>
+            <div class="alert-row"><span class="alert-label">종료 예정:</span> ${alert.endKST}</div>
+            <div class="alert-remain">남은 시간: ${fmtRemain(remain)}</div>
+          `;
+          container.appendChild(card);
+        });
+      }
+    }
+
+    (async () => {
+      await loadMetaDefs();
+      await fetchAlerts();
+      renderAlerts();
+      setInterval(renderAlerts, 1000); // 1초마다 화면만 갱신
+      setInterval(async () => {
+        await fetchAlerts();
+        renderAlerts();
+      }, 60000); // 1분마다 데이터 갱신
+    })();
+  </script>
+</body>
+</html>
